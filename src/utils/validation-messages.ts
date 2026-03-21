@@ -1,0 +1,18 @@
+export const V = {
+  required: (field: string) => `${field} é obrigatório`,
+  requiredFem: (field: string) => `${field} é obrigatória`,
+  max: (field: string, n: number) => `${field} deve ter no máximo ${n} caracteres`,
+  min: (field: string, n: number) => `${field} deve ter no mínimo ${n} caracteres`,
+  emailInvalid: 'Email inválido',
+  uuidInvalid: (field: string) => `${field} inválido`,
+  enumInvalid: (field: string) => `${field} inválido`,
+  enumInvalidFem: (field: string) => `${field} inválida`,
+  dateInvalid: 'Data inválida',
+  cnpjInvalid: 'CNPJ inválido',
+  cnpjFormat: 'CNPJ deve estar no formato XX.XXX.XXX/XXXX-XX',
+  nonNegative: (field: string) => `${field} não pode ser negativo`,
+  integer: 'Deve ser um número inteiro',
+  greaterThanZero: 'Deve ser maior que zero',
+  boolInvalid: 'Valor inválido',
+  valueRequired: 'Valor é obrigatório',
+} as const;
