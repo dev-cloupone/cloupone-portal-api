@@ -2,7 +2,7 @@ import { eq, and, between, sql, sum } from 'drizzle-orm';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PdfPrinter = require('pdfmake/js/Printer').default;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const UrlResolver = require('pdfmake/js/UrlResolver').default;
+const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
 import { timeEntries, projects, clients, users, consultantProfiles, activityCategories, tickets } from '../db/schema';
