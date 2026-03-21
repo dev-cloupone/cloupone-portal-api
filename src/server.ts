@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -88,11 +89,11 @@ app.use('/api/tickets', ticketRoutes);
 app.use(errorHandler);
 
 async function start() {
-  await migrate(db, { migrationsFolder: './src/db/migrations' });
+  await migrate(db, { migrationsFolder: path.resolve(__dirname, 'db/migrations') });
   logger.info('Database migrations applied');
 
-  app.listen(env.PORT, () => {
-    logger.info({ port: env.PORT }, 'Server started');
+  app.listen(env.PORT, '0.0.0.0', () => {
+    logger.info({ port: env.PORT }, 'Server started on 0.0.0.0');
   });
 }
 
