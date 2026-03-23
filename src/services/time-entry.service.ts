@@ -106,6 +106,99 @@ function getWeekEndDate(weekStartDate: string): string {
   return end.toISOString().split('T')[0];
 }
 
+function countWorkingDays(firstDay: Date, lastDay: Date): number {
+  let count = 0;
+  const d = new Date(firstDay);
+  while (d <= lastDay) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
+export async function getMonthEntries(userId: string, date: string) {
+  const [yearStr, monthStr] = date.split('-');
+  const year = parseInt(yearStr);
+  const month = parseInt(monthStr) - 1;
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+
+  const firstDayStr = firstDay.toISOString().split('T')[0];
+  const lastDayStr = lastDay.toISOString().split('T')[0];
+
+  const entries = await db
+    .select({
+      id: timeEntries.id,
+      userId: timeEntries.userId,
+      projectId: timeEntries.projectId,
+      projectName: projects.name,
+      clientName: clients.companyName,
+      categoryId: timeEntries.categoryId,
+      categoryName: activityCategories.name,
+      date: timeEntries.date,
+      startTime: timeEntries.startTime,
+      endTime: timeEntries.endTime,
+      hours: timeEntries.hours,
+      description: timeEntries.description,
+      status: timeEntries.status,
+      submittedAt: timeEntries.submittedAt,
+      approvedAt: timeEntries.approvedAt,
+      createdAt: timeEntries.createdAt,
+      updatedAt: timeEntries.updatedAt,
+      ticketId: timeEntries.ticketId,
+      ticketCode: tickets.code,
+      ticketTitle: tickets.title,
+    })
+    .from(timeEntries)
+    .leftJoin(projects, eq(timeEntries.projectId, projects.id))
+    .leftJoin(clients, eq(projects.clientId, clients.id))
+    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
+    .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
+    .where(and(
+      eq(timeEntries.userId, userId),
+      between(timeEntries.date, firstDayStr, lastDayStr),
+    ))
+    .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
+
+  const rejectedIds = entries.filter(e => e.status === 'rejected').map(e => e.id);
+  let commentsMap: Record<string, string> = {};
+
+  if (rejectedIds.length > 0) {
+    const comments = await db
+      .select({
+        timeEntryId: timeEntryComments.timeEntryId,
+        content: timeEntryComments.content,
+      })
+      .from(timeEntryComments)
+      .where(inArray(timeEntryComments.timeEntryId, rejectedIds))
+      .orderBy(desc(timeEntryComments.createdAt));
+
+    for (const c of comments) {
+      if (!commentsMap[c.timeEntryId]) {
+        commentsMap[c.timeEntryId] = c.content;
+      }
+    }
+  }
+
+  const entriesWithComments = entries.map(e => ({
+    ...e,
+    rejectionComment: commentsMap[e.id] ?? null,
+  }));
+
+  const workingDays = countWorkingDays(firstDay, lastDay);
+  const targetHours = workingDays * 8;
+  const totalHours = entries.reduce((sum, e) => sum + Number(e.hours), 0);
+
+  return {
+    month: date,
+    entries: entriesWithComments,
+    totalHours,
+    targetHours,
+    workingDays,
+  };
+}
+
 export async function getWeekEntries(userId: string, weekStartDate: string) {
   const weekEnd = getWeekEndDate(weekStartDate);
 

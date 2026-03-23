@@ -9,6 +9,7 @@ const router = Router();
 router.use(auth, authenticatedRateLimit);
 
 // Consultor endpoints (any authenticated user with entries)
+router.get('/month', timeEntryController.getMonthEntries);
 router.get('/week', timeEntryController.getWeekEntries);
 router.post('/', timeEntryController.upsert);
 router.post('/submit-week', timeEntryController.submitWeek);

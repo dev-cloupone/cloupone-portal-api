@@ -5,6 +5,7 @@ import { paginationSchema } from '../utils/pagination';
 import { V } from '../utils/validation-messages';
 
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+const monthRegex = /^\d{4}-\d{2}$/;
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const upsertEntrySchema = z.object({
@@ -31,6 +32,16 @@ const rejectEntrySchema = z.object({
 });
 
 const idSchema = z.string().uuid();
+
+const getMonthEntries: RequestHandler = async (req, res, next) => {
+  try {
+    const date = z.string().regex(monthRegex, 'Formato invalido. Use YYYY-MM').parse(req.query.date);
+    const result = await timeEntryService.getMonthEntries(req.userId!, date);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
 
 const getWeekEntries: RequestHandler = async (req, res, next) => {
   try {
@@ -140,6 +151,7 @@ const list: RequestHandler = async (req, res, next) => {
 };
 
 export const timeEntryController = {
+  getMonthEntries,
   getWeekEntries,
   upsert,
   remove,
