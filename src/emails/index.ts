@@ -11,3 +11,7 @@ export { buildTicketCreatedEmail } from './ticket-created';
 export { buildTicketAssignedEmail } from './ticket-assigned';
 export { buildTicketStatusChangedEmail } from './ticket-status-changed';
 export { buildTicketCommentEmail } from './ticket-comment';
+export { buildExpensesSubmittedEmail } from './expenses-submitted';
+export { buildExpenseApprovedEmail } from './expense-approved';
+export { buildExpenseRejectedEmail } from './expense-rejected';
+export { buildReimbursementPaidEmail } from './reimbursement-paid';

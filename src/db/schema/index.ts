@@ -12,3 +12,4 @@ export { activityCategories } from './activity-categories';
 export { timeEntryStatusEnum, timeEntries } from './time-entries';
 export { timeEntryComments } from './time-entry-comments';
 export { ticketTypeEnum, ticketPriorityEnum, ticketStatusEnum, tickets, ticketComments, ticketHistory, ticketAttachments } from './tickets';
+export { expenseStatusEnum, expenseCategories, expenseTemplates, expenses, expenseComments } from './expenses';

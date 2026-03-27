@@ -22,6 +22,9 @@ import { dashboardRoutes } from './routes/dashboard.routes';
 import { reportRoutes } from './routes/report.routes';
 import { notificationRoutes } from './routes/notification.routes';
 import { ticketRoutes } from './routes/ticket.routes';
+import { expenseCategoryRoutes } from './routes/expense-category.routes';
+import { expenseRoutes } from './routes/expense.routes';
+import { expenseTemplateRoutes } from './routes/expense-template.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
 
@@ -85,6 +88,9 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/expense-categories', expenseCategoryRoutes);
+app.use('/api/expenses', expenseRoutes);
+app.use('/api/expense-templates', expenseTemplateRoutes);
 
 app.use(errorHandler);
 

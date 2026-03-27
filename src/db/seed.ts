@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { db } from './index';
-import { users, platformSettings, activityCategories } from './schema';
+import { users, platformSettings, activityCategories, expenseCategories } from './schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
@@ -60,6 +60,23 @@ async function seed() {
     await db.insert(activityCategories).values(cat).onConflictDoNothing();
   }
   logger.info('Activity categories seeded');
+
+  // Seed expense categories
+  const defaultExpenseCategories = [
+    { name: 'Alimentação', maxAmount: '80.00', requiresReceipt: true, sortOrder: 1 },
+    { name: 'Transporte', maxAmount: '100.00', requiresReceipt: true, sortOrder: 2 },
+    { name: 'Hospedagem', maxAmount: '400.00', requiresReceipt: true, sortOrder: 3 },
+    { name: 'Passagem Aérea', maxAmount: '2000.00', requiresReceipt: true, sortOrder: 4 },
+    { name: 'Material de Escritório', maxAmount: '200.00', requiresReceipt: true, sortOrder: 5 },
+    { name: 'Estacionamento', maxAmount: '50.00', requiresReceipt: false, sortOrder: 6 },
+    { name: 'Combustível', maxAmount: '150.00', requiresReceipt: true, sortOrder: 7 },
+    { name: 'Outros', maxAmount: '100.00', requiresReceipt: true, sortOrder: 8 },
+  ];
+
+  for (const cat of defaultExpenseCategories) {
+    await db.insert(expenseCategories).values(cat).onConflictDoNothing();
+  }
+  logger.info('Expense categories seeded');
 
   process.exit(0);
 }

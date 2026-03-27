@@ -24,4 +24,9 @@ router.get('/client/:clientId/enhanced', reportController.enhancedClientData);
 router.get('/client/:clientId/enhanced/pdf', reportController.enhancedClientPdf);
 router.get('/client/:clientId/enhanced/excel', reportController.enhancedClientCsv);
 
+// Expense Report
+router.get('/expenses', reportController.expenseData);
+router.get('/expenses/pdf', reportController.expensePdf);
+router.get('/expenses/excel', reportController.expenseCsv);
+
 export { router as reportRoutes };

@@ -5,7 +5,7 @@ const PdfPrinter = require('pdfmake/js/Printer').default;
 const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
-import { timeEntries, projects, clients, users, consultantProfiles, activityCategories, tickets } from '../db/schema';
+import { timeEntries, projects, clients, users, consultantProfiles, activityCategories, tickets, expenses, expenseCategories } from '../db/schema';
 import { AppError } from '../utils/app-error';
 
 const MSG = {
@@ -98,8 +98,9 @@ export async function getClientReportData(clientId: string, from: string, to: st
 
 export async function generateClientPdf(clientId: string, from: string, to: string): Promise<Buffer> {
   const data = await getClientReportData(clientId, from, to);
+  const expenseEntries = await getClientReportExpenses(clientId, from, to);
 
-  if (data.entries.length === 0) throw new AppError(MSG.NO_DATA, 404);
+  if (data.entries.length === 0 && expenseEntries.length === 0) throw new AppError(MSG.NO_DATA, 404);
 
   const tableBody: TableCell[][] = [
     [
@@ -128,14 +129,14 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
     margin: [0, 2, 0, 2] as [number, number, number, number],
   }));
 
-  const docDefinition: TDocumentDefinitions = {
-    defaultStyle: { font: 'Helvetica', fontSize: 9 },
-    pageSize: 'A4',
-    pageMargins: [40, 60, 40, 60],
-    content: [
-      { text: 'CLOUPONE', style: 'brand' },
-      { text: `Relatorio de Horas - ${data.client.companyName}`, style: 'title' },
-      { text: `Periodo: ${formatMonthYear(from, to)}`, style: 'subtitle' },
+  const contentBlocks: Content[] = [
+    { text: 'CLOUPONE', style: 'brand' },
+    { text: `Relatorio de Horas - ${data.client.companyName}`, style: 'title' },
+    { text: `Periodo: ${formatMonthYear(from, to)}`, style: 'subtitle' },
+  ];
+
+  if (data.entries.length > 0) {
+    contentBlocks.push(
       { text: ' ', margin: [0, 10, 0, 0] },
       {
         table: {
@@ -154,13 +155,75 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
       },
       {
         columns: [
-          { text: 'TOTAL', bold: true, width: '*' },
+          { text: 'TOTAL HORAS', bold: true, width: '*' },
           { text: `${data.totalHours.toFixed(1)}h`, bold: true, width: 60, alignment: 'right' },
           { text: '', width: 80 },
           { text: `R$ ${data.totalValue.toFixed(2)}`, bold: true, width: 80, alignment: 'right' },
         ],
       },
-    ],
+    );
+  }
+
+  // Expenses section
+  if (expenseEntries.length > 0) {
+    const expenseTotal = expenseEntries.reduce((s, e) => s + Number(e.amount), 0);
+
+    contentBlocks.push(
+      { text: ' ', margin: [0, 15, 0, 0] },
+      { text: 'DESPESAS', style: 'sectionTitle' },
+      {
+        table: {
+          headerRows: 1,
+          widths: [55, 75, 65, '*', 60],
+          body: [
+            [
+              { text: 'Data', style: 'tableHeader' },
+              { text: 'Consultor', style: 'tableHeader' },
+              { text: 'Categoria', style: 'tableHeader' },
+              { text: 'Descricao', style: 'tableHeader' },
+              { text: 'Valor', style: 'tableHeader', alignment: 'right' },
+            ],
+            ...expenseEntries.map((e) => [
+              formatDate(e.date),
+              e.consultantName || '-',
+              e.categoryName || '-',
+              e.description,
+              { text: `R$ ${Number(e.amount).toFixed(2)}`, alignment: 'right' as const },
+            ]),
+          ],
+        },
+        layout: 'lightHorizontalLines',
+        margin: [0, 0, 0, 5] as [number, number, number, number],
+      },
+      {
+        columns: [
+          { text: 'TOTAL DESPESAS', bold: true, width: '*' },
+          { text: `R$ ${expenseTotal.toFixed(2)}`, bold: true, width: 80, alignment: 'right' },
+        ],
+      },
+    );
+
+    // Grand total (hours + expenses)
+    const grandTotal = data.totalValue + expenseTotal;
+    contentBlocks.push(
+      {
+        canvas: [{ type: 'line', x1: 0, y1: 5, x2: 515, y2: 5, lineWidth: 2 }],
+        margin: [0, 10, 0, 5] as [number, number, number, number],
+      },
+      {
+        columns: [
+          { text: 'TOTAL GERAL (Horas + Despesas)', bold: true, fontSize: 11, width: '*' },
+          { text: `R$ ${grandTotal.toFixed(2)}`, bold: true, fontSize: 11, width: 100, alignment: 'right' },
+        ],
+      },
+    );
+  }
+
+  const docDefinition: TDocumentDefinitions = {
+    defaultStyle: { font: 'Helvetica', fontSize: 9 },
+    pageSize: 'A4',
+    pageMargins: [40, 60, 40, 60],
+    content: contentBlocks,
     styles: {
       brand: { fontSize: 14, bold: true, color: '#10b981', margin: [0, 0, 0, 5] },
       title: { fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
@@ -195,7 +258,27 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
     .groupBy(clients.companyName, projects.name, projects.billingRate)
     .orderBy(clients.companyName, projects.name);
 
-  if (entries.length === 0) throw new AppError(MSG.NO_DATA, 404);
+  // Expense totals by client
+  const expenseRows = await db
+    .select({
+      clientName: clients.companyName,
+      totalExpenses: sum(expenses.amount),
+    })
+    .from(expenses)
+    .innerJoin(projects, eq(expenses.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .where(and(
+      eq(expenses.status, 'approved'),
+      between(expenses.date, from, to),
+    ))
+    .groupBy(clients.companyName);
+
+  const expenseByClient = new Map<string, number>();
+  for (const e of expenseRows) {
+    expenseByClient.set(e.clientName, Number(e.totalExpenses));
+  }
+
+  if (entries.length === 0 && expenseRows.length === 0) throw new AppError(MSG.NO_DATA, 404);
 
   // Group by client
   const byClient = new Map<string, Array<{ projectName: string; hours: number; rate: number; value: number }>>();
@@ -207,6 +290,11 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
     byClient.set(e.clientName, list);
   }
 
+  // Ensure clients with only expenses appear
+  for (const clientName of expenseByClient.keys()) {
+    if (!byClient.has(clientName)) byClient.set(clientName, []);
+  }
+
   const content: Content[] = [
     { text: 'CLOUPONE', style: 'brand' },
     { text: 'Relatorio de Faturamento', style: 'title' },
@@ -215,16 +303,23 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
 
   let grandTotal = 0;
   let grandHours = 0;
+  let grandExpenses = 0;
 
   for (const [clientName, projectList] of byClient) {
-    const clientTotal = projectList.reduce((s, p) => s + p.value, 0);
+    const clientHoursTotal = projectList.reduce((s, p) => s + p.value, 0);
     const clientHours = projectList.reduce((s, p) => s + p.hours, 0);
+    const clientExpenses = expenseByClient.get(clientName) || 0;
+    const clientTotal = clientHoursTotal + clientExpenses;
     grandTotal += clientTotal;
     grandHours += clientHours;
+    grandExpenses += clientExpenses;
 
     content.push(
       { text: clientName, style: 'sectionTitle' },
-      {
+    );
+
+    if (projectList.length > 0) {
+      content.push({
         table: {
           headerRows: 1,
           widths: ['*', 50, 70, 70],
@@ -241,18 +336,26 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
               { text: `R$ ${p.rate.toFixed(2)}`, alignment: 'right' as const },
               { text: `R$ ${p.value.toFixed(2)}`, alignment: 'right' as const },
             ]),
-            [
-              { text: `Subtotal - ${clientName}`, bold: true, colSpan: 2 },
-              {},
-              {},
-              { text: `R$ ${clientTotal.toFixed(2)}`, bold: true, alignment: 'right' as const },
-            ],
           ],
         },
         layout: 'lightHorizontalLines',
-        margin: [0, 0, 0, 15] as [number, number, number, number],
-      },
-    );
+        margin: [0, 0, 0, 5] as [number, number, number, number],
+      });
+    }
+
+    // Per-client subtotal with expenses
+    const subtotalParts: string[] = [];
+    if (clientHoursTotal > 0) subtotalParts.push(`Horas: R$ ${clientHoursTotal.toFixed(2)}`);
+    if (clientExpenses > 0) subtotalParts.push(`Despesas: R$ ${clientExpenses.toFixed(2)}`);
+
+    content.push({
+      columns: [
+        { text: `Subtotal - ${clientName}`, bold: true, width: '*' },
+        { text: subtotalParts.join(' | '), fontSize: 8, color: '#444', width: 200, alignment: 'right' as const },
+        { text: `R$ ${clientTotal.toFixed(2)}`, bold: true, width: 80, alignment: 'right' as const },
+      ],
+      margin: [0, 2, 0, 15] as [number, number, number, number],
+    });
   }
 
   content.push(
@@ -268,6 +371,15 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
       ],
     },
   );
+
+  if (grandExpenses > 0) {
+    content.push({
+      text: `Horas: R$ ${(grandTotal - grandExpenses).toFixed(2)} | Despesas: R$ ${grandExpenses.toFixed(2)}`,
+      fontSize: 8,
+      color: '#444',
+      margin: [0, 3, 0, 0] as [number, number, number, number],
+    });
+  }
 
   const docDefinition: TDocumentDefinitions = {
     defaultStyle: { font: 'Helvetica', fontSize: 9 },
@@ -407,27 +519,56 @@ export async function generatePayrollPdf(from: string, to: string): Promise<Buff
 
 export async function generateClientCsv(clientId: string, from: string, to: string): Promise<string> {
   const data = await getClientReportData(clientId, from, to);
+  const expenseEntries = await getClientReportExpenses(clientId, from, to);
 
-  if (data.entries.length === 0) throw new AppError(MSG.NO_DATA, 404);
+  if (data.entries.length === 0 && expenseEntries.length === 0) throw new AppError(MSG.NO_DATA, 404);
 
-  const header = 'Data;Consultor;Atividade;Descricao;Horas';
-  const rows = data.entries.map((e) =>
-    [
+  const lines: string[] = [];
+
+  // Hours section
+  lines.push('Horas');
+  lines.push('Data;Consultor;Atividade;Descricao;Horas');
+  for (const e of data.entries) {
+    lines.push([
       formatDate(e.date),
       e.consultantName || '',
       e.activityName || '',
       `"${(e.description || '').replace(/"/g, '""')}"`,
       Number(e.hours).toFixed(1),
-    ].join(';'),
-  );
+    ].join(';'));
+  }
+  lines.push(`Total Horas;${data.totalHours.toFixed(1)}`);
+  lines.push(`Total Valor Horas;R$ ${data.totalValue.toFixed(2)}`);
+  lines.push('');
 
-  const totalRow = `;;;\nTotal;;;\n${data.totalHours.toFixed(1)}`;
-  const summaryHeader = '\n\nResumo por Projeto\nProjeto;Horas;Taxa/h;Valor';
-  const summaryRows = data.projectSummary.map((p) =>
-    [p.projectName, p.hours.toFixed(1), p.rate.toFixed(2), p.value.toFixed(2)].join(';'),
-  );
+  // Project summary
+  lines.push('Resumo por Projeto');
+  lines.push('Projeto;Horas;Taxa/h;Valor');
+  for (const p of data.projectSummary) {
+    lines.push([p.projectName, p.hours.toFixed(1), p.rate.toFixed(2), p.value.toFixed(2)].join(';'));
+  }
 
-  return [header, ...rows, '', `Total Horas;${data.totalHours.toFixed(1)}`, `Total Valor;R$ ${data.totalValue.toFixed(2)}`, summaryHeader, ...summaryRows].join('\n');
+  // Expenses section
+  if (expenseEntries.length > 0) {
+    const expenseTotal = expenseEntries.reduce((s, e) => s + Number(e.amount), 0);
+    lines.push('');
+    lines.push('Despesas');
+    lines.push('Data;Consultor;Categoria;Descricao;Valor');
+    for (const e of expenseEntries) {
+      lines.push([
+        formatDate(e.date),
+        e.consultantName || '',
+        e.categoryName || '',
+        `"${e.description.replace(/"/g, '""')}"`,
+        Number(e.amount).toFixed(2),
+      ].join(';'));
+    }
+    lines.push(`Total Despesas;R$ ${expenseTotal.toFixed(2)}`);
+    lines.push('');
+    lines.push(`Total Geral (Horas + Despesas);R$ ${(data.totalValue + expenseTotal).toFixed(2)}`);
+  }
+
+  return lines.join('\n');
 }
 
 // --- Consultant Report ---
@@ -1228,6 +1369,284 @@ export async function generateEnhancedClientCsv(
   }
 
   return lines.join('\n');
+}
+
+// --- Expense Report (standalone) ---
+
+interface ExpenseReportEntry {
+  date: string;
+  consultantName: string | null;
+  projectName: string;
+  clientName: string;
+  categoryName: string | null;
+  description: string;
+  amount: string;
+  requiresReimbursement: boolean;
+  reimbursedAt: Date | null;
+}
+
+interface ExpenseReportCategorySummary {
+  categoryName: string;
+  count: number;
+  totalAmount: number;
+}
+
+interface ExpenseReportData {
+  entries: ExpenseReportEntry[];
+  categorySummary: ExpenseReportCategorySummary[];
+  totalAmount: number;
+  totalCount: number;
+  totalReimbursable: number;
+  totalReimbursed: number;
+}
+
+export async function getExpenseReportData(
+  from: string, to: string,
+  filters?: { projectId?: string; consultantId?: string; categoryId?: string; reimbursementStatus?: 'pending' | 'paid' | 'all' },
+): Promise<ExpenseReportData> {
+  if (!from || !to) throw new AppError(MSG.INVALID_DATES, 400);
+
+  const conditions = [
+    eq(expenses.status, 'approved'),
+    between(expenses.date, from, to),
+  ];
+
+  if (filters?.projectId) conditions.push(eq(expenses.projectId, filters.projectId));
+  if (filters?.consultantId) conditions.push(eq(expenses.createdByUserId, filters.consultantId));
+  if (filters?.categoryId) conditions.push(eq(expenses.expenseCategoryId, filters.categoryId));
+  if (filters?.reimbursementStatus === 'pending') conditions.push(sql`${expenses.reimbursedAt} IS NULL`);
+  else if (filters?.reimbursementStatus === 'paid') conditions.push(sql`${expenses.reimbursedAt} IS NOT NULL`);
+
+  const entries = await db
+    .select({
+      date: expenses.date,
+      consultantName: users.name,
+      projectName: projects.name,
+      clientName: clients.companyName,
+      categoryName: expenseCategories.name,
+      description: expenses.description,
+      amount: expenses.amount,
+      requiresReimbursement: expenses.requiresReimbursement,
+      reimbursedAt: expenses.reimbursedAt,
+    })
+    .from(expenses)
+    .innerJoin(projects, eq(expenses.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .leftJoin(users, eq(expenses.createdByUserId, users.id))
+    .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+    .where(and(...conditions))
+    .orderBy(expenses.date, users.name);
+
+  if (entries.length === 0) throw new AppError(MSG.NO_DATA, 404);
+
+  // Aggregate by category
+  const categoryMap = new Map<string, { count: number; totalAmount: number }>();
+  let totalAmount = 0;
+  let totalReimbursable = 0;
+  let totalReimbursed = 0;
+
+  for (const e of entries) {
+    const amt = Number(e.amount);
+    totalAmount += amt;
+    if (e.requiresReimbursement) totalReimbursable += amt;
+    if (e.reimbursedAt) totalReimbursed += amt;
+
+    const catName = e.categoryName || 'Sem categoria';
+    const existing = categoryMap.get(catName) || { count: 0, totalAmount: 0 };
+    existing.count++;
+    existing.totalAmount += amt;
+    categoryMap.set(catName, existing);
+  }
+
+  const categorySummary = Array.from(categoryMap.entries())
+    .map(([categoryName, data]) => ({ categoryName, ...data }))
+    .sort((a, b) => b.totalAmount - a.totalAmount);
+
+  return {
+    entries,
+    categorySummary,
+    totalAmount,
+    totalCount: entries.length,
+    totalReimbursable,
+    totalReimbursed,
+  };
+}
+
+export async function generateExpensePdf(
+  from: string, to: string,
+  filters?: { projectId?: string; consultantId?: string; categoryId?: string; reimbursementStatus?: 'pending' | 'paid' | 'all' },
+): Promise<Buffer> {
+  const data = await getExpenseReportData(from, to, filters);
+
+  const content: Content[] = [
+    { text: 'CLOUPONE', style: 'brand' },
+    { text: 'Relatorio de Despesas', style: 'title' },
+    { text: `Periodo: ${formatMonthYear(from, to)}`, style: 'subtitle' },
+  ];
+
+  // Category summary table
+  content.push(
+    { text: 'Resumo por Categoria', style: 'sectionTitle' },
+    {
+      table: {
+        headerRows: 1,
+        widths: ['*', 50, 80],
+        body: [
+          [
+            { text: 'Categoria', style: 'tableHeader' },
+            { text: 'Qtde', style: 'tableHeader', alignment: 'right' },
+            { text: 'Valor', style: 'tableHeader', alignment: 'right' },
+          ],
+          ...data.categorySummary.map((c) => [
+            c.categoryName,
+            { text: String(c.count), alignment: 'right' as const },
+            { text: `R$ ${c.totalAmount.toFixed(2)}`, alignment: 'right' as const },
+          ]),
+          [
+            { text: 'TOTAL', bold: true },
+            { text: String(data.totalCount), bold: true, alignment: 'right' as const },
+            { text: `R$ ${data.totalAmount.toFixed(2)}`, bold: true, alignment: 'right' as const },
+          ],
+        ],
+      },
+      layout: 'lightHorizontalLines',
+      margin: [0, 0, 0, 15] as [number, number, number, number],
+    },
+  );
+
+  // Detail table
+  content.push(
+    { text: 'Detalhamento', style: 'sectionTitle' },
+    {
+      table: {
+        headerRows: 1,
+        widths: [55, 70, 70, 60, '*', 60],
+        body: [
+          [
+            { text: 'Data', style: 'tableHeader' },
+            { text: 'Consultor', style: 'tableHeader' },
+            { text: 'Projeto', style: 'tableHeader' },
+            { text: 'Categoria', style: 'tableHeader' },
+            { text: 'Descricao', style: 'tableHeader' },
+            { text: 'Valor', style: 'tableHeader', alignment: 'right' },
+          ],
+          ...data.entries.map((e) => [
+            formatDate(e.date),
+            e.consultantName || '-',
+            e.projectName,
+            e.categoryName || '-',
+            e.description,
+            { text: `R$ ${Number(e.amount).toFixed(2)}`, alignment: 'right' as const },
+          ]),
+        ],
+      },
+      layout: 'lightHorizontalLines',
+      margin: [0, 0, 0, 15] as [number, number, number, number],
+    },
+  );
+
+  // Totals
+  content.push(
+    {
+      canvas: [{ type: 'line', x1: 0, y1: 5, x2: 515, y2: 5, lineWidth: 2 }],
+      margin: [0, 5, 0, 5] as [number, number, number, number],
+    },
+    {
+      columns: [
+        { text: 'TOTAL GERAL', bold: true, fontSize: 12, width: '*' },
+        { text: `${data.totalCount} despesas`, bold: true, fontSize: 10, width: 100, alignment: 'right' },
+        { text: `R$ ${data.totalAmount.toFixed(2)}`, bold: true, fontSize: 12, width: 100, alignment: 'right' },
+      ],
+    },
+  );
+
+  if (data.totalReimbursable > 0) {
+    content.push({
+      text: `Reembolsavel: R$ ${data.totalReimbursable.toFixed(2)} | Reembolsado: R$ ${data.totalReimbursed.toFixed(2)} | Pendente: R$ ${(data.totalReimbursable - data.totalReimbursed).toFixed(2)}`,
+      fontSize: 8,
+      color: '#444',
+      margin: [0, 5, 0, 0] as [number, number, number, number],
+    });
+  }
+
+  const docDefinition: TDocumentDefinitions = {
+    defaultStyle: { font: 'Helvetica', fontSize: 9 },
+    pageSize: 'A4',
+    pageMargins: [40, 60, 40, 60],
+    content,
+    styles: {
+      brand: { fontSize: 14, bold: true, color: '#10b981', margin: [0, 0, 0, 5] },
+      title: { fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
+      subtitle: { fontSize: 10, color: '#666', margin: [0, 0, 0, 15] },
+      sectionTitle: { fontSize: 11, bold: true, margin: [0, 10, 0, 5] },
+      tableHeader: { bold: true, fontSize: 8, fillColor: '#f0f0f0' },
+    },
+  };
+
+  return pdfToBuffer(docDefinition);
+}
+
+export async function generateExpenseCsv(
+  from: string, to: string,
+  filters?: { projectId?: string; consultantId?: string; categoryId?: string; reimbursementStatus?: 'pending' | 'paid' | 'all' },
+): Promise<string> {
+  const data = await getExpenseReportData(from, to, filters);
+
+  const lines: string[] = [];
+
+  lines.push(`Relatorio de Despesas;Periodo;${formatMonthYear(from, to)}`);
+  lines.push('');
+
+  // Category summary
+  lines.push('Resumo por Categoria');
+  lines.push('Categoria;Quantidade;Valor');
+  for (const c of data.categorySummary) {
+    lines.push([c.categoryName, String(c.count), c.totalAmount.toFixed(2)].join(';'));
+  }
+  lines.push(['TOTAL', String(data.totalCount), data.totalAmount.toFixed(2)].join(';'));
+  lines.push('');
+
+  // Detail
+  lines.push('Detalhamento');
+  lines.push('Data;Consultor;Projeto;Cliente;Categoria;Descricao;Valor;Reembolso;Reembolsado');
+  for (const e of data.entries) {
+    lines.push([
+      formatDate(e.date),
+      e.consultantName || '',
+      e.projectName,
+      e.clientName,
+      e.categoryName || '',
+      `"${e.description.replace(/"/g, '""')}"`,
+      Number(e.amount).toFixed(2),
+      e.requiresReimbursement ? 'Sim' : 'Nao',
+      e.reimbursedAt ? 'Sim' : 'Nao',
+    ].join(';'));
+  }
+
+  return lines.join('\n');
+}
+
+// --- Extend Client Report with Expenses ---
+
+export async function getClientReportExpenses(clientId: string, from: string, to: string) {
+  return db
+    .select({
+      date: expenses.date,
+      consultantName: users.name,
+      categoryName: expenseCategories.name,
+      description: expenses.description,
+      amount: expenses.amount,
+    })
+    .from(expenses)
+    .innerJoin(projects, eq(expenses.projectId, projects.id))
+    .leftJoin(users, eq(expenses.createdByUserId, users.id))
+    .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+    .where(and(
+      eq(projects.clientId, clientId),
+      eq(expenses.status, 'approved'),
+      between(expenses.date, from, to),
+    ))
+    .orderBy(expenses.date, users.name);
 }
 
 // --- Helper: pdfmake to Buffer ---

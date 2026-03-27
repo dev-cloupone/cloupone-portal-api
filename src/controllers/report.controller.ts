@@ -159,8 +159,63 @@ const enhancedClientCsv: RequestHandler = async (req, res, next) => {
   }
 };
 
+// --- Expense Report ---
+
+const expenseData: RequestHandler = async (req, res, next) => {
+  try {
+    const { from, to } = dateRangeSchema.parse(req.query);
+    const filters = {
+      projectId: req.query.projectId as string | undefined,
+      consultantId: req.query.consultantId as string | undefined,
+      categoryId: req.query.categoryId as string | undefined,
+      reimbursementStatus: req.query.reimbursementStatus as 'pending' | 'paid' | 'all' | undefined,
+    };
+    const data = await reportService.getExpenseReportData(from, to, filters);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const expensePdf: RequestHandler = async (req, res, next) => {
+  try {
+    const { from, to } = dateRangeSchema.parse(req.query);
+    const filters = {
+      projectId: req.query.projectId as string | undefined,
+      consultantId: req.query.consultantId as string | undefined,
+      categoryId: req.query.categoryId as string | undefined,
+      reimbursementStatus: req.query.reimbursementStatus as 'pending' | 'paid' | 'all' | undefined,
+    };
+    const buffer = await reportService.generateExpensePdf(from, to, filters);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=relatorio-despesas-${from}-${to}.pdf`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const expenseCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { from, to } = dateRangeSchema.parse(req.query);
+    const filters = {
+      projectId: req.query.projectId as string | undefined,
+      consultantId: req.query.consultantId as string | undefined,
+      categoryId: req.query.categoryId as string | undefined,
+      reimbursementStatus: req.query.reimbursementStatus as 'pending' | 'paid' | 'all' | undefined,
+    };
+    const csv = await reportService.generateExpenseCsv(from, to, filters);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=relatorio-despesas-${from}-${to}.csv`);
+    res.send('\uFEFF' + csv);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const reportController = {
   clientPdf, clientCsv, billing, payroll, clientData,
   consultantData, consultantPdf, consultantCsv,
   enhancedClientData, enhancedClientPdf, enhancedClientCsv,
+  expenseData, expensePdf, expenseCsv,
 };
