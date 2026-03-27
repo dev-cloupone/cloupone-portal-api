@@ -1,6 +1,7 @@
 import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { tickets, ticketComments, ticketHistory, ticketAttachments, users, projects, clients, projectAllocations, files, timeEntries } from '../db/schema';
+import { deleteFile } from './file.service';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -601,7 +602,7 @@ export async function addAttachment(data: {
 
 export async function removeAttachment(ticketId: string, attachmentId: string, userId: string, userRole: string) {
   const [attachment] = await db
-    .select({ id: ticketAttachments.id, uploadedBy: ticketAttachments.uploadedBy })
+    .select({ id: ticketAttachments.id, fileId: ticketAttachments.fileId, uploadedBy: ticketAttachments.uploadedBy })
     .from(ticketAttachments)
     .where(and(eq(ticketAttachments.id, attachmentId), eq(ticketAttachments.ticketId, ticketId)))
     .limit(1);
@@ -613,6 +614,7 @@ export async function removeAttachment(ticketId: string, attachmentId: string, u
   }
 
   await db.delete(ticketAttachments).where(eq(ticketAttachments.id, attachmentId));
+  await deleteFile(attachment.fileId);
   await recordHistory(ticketId, userId, 'attachment', 'Arquivo anexado', 'Arquivo removido');
 }
 
