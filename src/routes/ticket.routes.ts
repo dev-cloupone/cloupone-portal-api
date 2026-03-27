@@ -22,6 +22,7 @@ router.get('/:id/comments', ticketController.listComments);
 router.get('/:id/history', ticketController.listHistory);
 
 // Anexos
+router.get('/:id/attachments', ticketController.listAttachments);
 router.post('/:id/attachments', ticketController.addAttachment);
 router.delete('/:id/attachments/:attachmentId', ticketController.removeAttachment);
 

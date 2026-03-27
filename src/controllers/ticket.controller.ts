@@ -203,6 +203,16 @@ const addAttachment: RequestHandler = async (req, res, next) => {
   }
 };
 
+const listAttachments: RequestHandler = async (req, res, next) => {
+  try {
+    const ticketId = idSchema.parse(req.params.id);
+    const attachments = await ticketService.listAttachments(ticketId);
+    res.json(attachments);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const removeAttachment: RequestHandler = async (req, res, next) => {
   try {
     const ticketId = idSchema.parse(req.params.id);
@@ -241,6 +251,7 @@ export const ticketController = {
   listComments,
   listHistory,
   addAttachment,
+  listAttachments,
   removeAttachment,
   listTimeEntries,
 };
