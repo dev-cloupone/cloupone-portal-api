@@ -92,6 +92,22 @@ const submitWeek: RequestHandler = async (req, res, next) => {
   }
 };
 
+const submitEntrySchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+  }),
+});
+
+const submitEntry: RequestHandler = async (req, res, next) => {
+  try {
+    const { params: { id } } = submitEntrySchema.parse({ params: req.params });
+    const result = await timeEntryService.submitEntry(id, req.userId!);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const resubmit: RequestHandler = async (req, res, next) => {
   try {
     const result = await timeEntryService.resubmitEntry(idSchema.parse(req.params.id), req.userId!);
@@ -156,6 +172,7 @@ export const timeEntryController = {
   upsert,
   remove,
   submitWeek,
+  submitEntry,
   resubmit,
   listPending,
   approve,

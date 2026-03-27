@@ -97,6 +97,16 @@ async function validateOverlap(
   }
 }
 
+async function getRequiresApproval(userId: string): Promise<boolean> {
+  const profile = await db
+    .select({ requiresApproval: consultantProfiles.requiresApproval })
+    .from(consultantProfiles)
+    .where(eq(consultantProfiles.userId, userId))
+    .limit(1);
+
+  return profile[0]?.requiresApproval ?? false;
+}
+
 // --- Core functions ---
 
 function getWeekEndDate(weekStartDate: string): string {
@@ -396,16 +406,25 @@ export async function submitWeek(userId: string, weekStartDate: string) {
 
   if (draftEntries.length === 0) throw new AppError(MSG.NO_ENTRIES, 400);
 
+  const requiresApproval = await getRequiresApproval(userId);
   const now = new Date();
-  await db.update(timeEntries).set({
-    status: 'submitted',
-    submittedAt: now,
-    updatedAt: now,
-  }).where(and(
-    eq(timeEntries.userId, userId),
-    between(timeEntries.date, weekStartDate, weekEnd),
-    eq(timeEntries.status, 'draft'),
-  ));
+  const draftEntryIds = draftEntries.map(e => e.id);
+
+  if (requiresApproval) {
+    await db.update(timeEntries).set({
+      status: 'submitted',
+      submittedAt: now,
+      updatedAt: now,
+    }).where(inArray(timeEntries.id, draftEntryIds));
+  } else {
+    await db.update(timeEntries).set({
+      status: 'auto_approved',
+      submittedAt: now,
+      approvedAt: now,
+      approvedBy: null,
+      updatedAt: now,
+    }).where(inArray(timeEntries.id, draftEntryIds));
+  }
 
   // Build warnings
   const warnings: string[] = [];
@@ -443,7 +462,50 @@ export async function submitWeek(userId: string, weekStartDate: string) {
     }
   }
 
-  return { submitted: draftEntries.length, warnings };
+  return { submitted: draftEntries.length, warnings, autoApproved: !requiresApproval };
+}
+
+export async function submitEntry(entryId: string, userId: string) {
+  const [entry] = await db
+    .select()
+    .from(timeEntries)
+    .where(
+      and(
+        eq(timeEntries.id, entryId),
+        eq(timeEntries.userId, userId),
+        eq(timeEntries.status, 'draft'),
+      ),
+    )
+    .limit(1);
+
+  if (!entry) {
+    throw new AppError('Entry not found or not in draft status', 404);
+  }
+
+  const requiresApproval = await getRequiresApproval(userId);
+  const now = new Date();
+
+  if (requiresApproval) {
+    await db
+      .update(timeEntries)
+      .set({ status: 'submitted', submittedAt: now, updatedAt: now })
+      .where(eq(timeEntries.id, entryId));
+
+    return { status: 'submitted' as const };
+  } else {
+    await db
+      .update(timeEntries)
+      .set({
+        status: 'auto_approved',
+        submittedAt: now,
+        approvedAt: now,
+        approvedBy: null,
+        updatedAt: now,
+      })
+      .where(eq(timeEntries.id, entryId));
+
+    return { status: 'auto_approved' as const };
+  }
 }
 
 export async function listPendingApprovals(params: PaginationParams & { consultantId?: string }) {
@@ -567,7 +629,7 @@ export async function listTimeEntries(params: PaginationParams & {
   const conditions = [];
   if (userId) conditions.push(eq(timeEntries.userId, userId));
   if (projectId) conditions.push(eq(timeEntries.projectId, projectId));
-  if (status) conditions.push(eq(timeEntries.status, status as 'draft' | 'submitted' | 'approved' | 'rejected'));
+  if (status) conditions.push(eq(timeEntries.status, status as 'draft' | 'submitted' | 'approved' | 'rejected' | 'auto_approved'));
   if (from && to) conditions.push(between(timeEntries.date, from, to));
   else if (from) conditions.push(sql`${timeEntries.date} >= ${from}`);
   else if (to) conditions.push(sql`${timeEntries.date} <= ${to}`);

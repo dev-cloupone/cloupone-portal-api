@@ -4,7 +4,7 @@ import { projects } from './projects';
 import { activityCategories } from './activity-categories';
 import { tickets } from './tickets';
 
-export const timeEntryStatusEnum = pgEnum('time_entry_status', ['draft', 'submitted', 'approved', 'rejected']);
+export const timeEntryStatusEnum = pgEnum('time_entry_status', ['draft', 'submitted', 'approved', 'rejected', 'auto_approved']);
 
 export const timeEntries = pgTable('time_entries', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -24,6 +24,7 @@ export async function listConsultants(params: PaginationParams) {
       hourlyRate: consultantProfiles.hourlyRate,
       contractType: consultantProfiles.contractType,
       allowOverlappingEntries: consultantProfiles.allowOverlappingEntries,
+      requiresApproval: consultantProfiles.requiresApproval,
       createdAt: consultantProfiles.createdAt,
       updatedAt: consultantProfiles.updatedAt,
     })
@@ -47,6 +48,7 @@ export async function getConsultantByUserId(userId: string) {
     hourlyRate: consultantProfiles.hourlyRate,
     contractType: consultantProfiles.contractType,
     allowOverlappingEntries: consultantProfiles.allowOverlappingEntries,
+    requiresApproval: consultantProfiles.requiresApproval,
     createdAt: consultantProfiles.createdAt,
     updatedAt: consultantProfiles.updatedAt,
   })
@@ -59,7 +61,7 @@ export async function getConsultantByUserId(userId: string) {
   return profile;
 }
 
-export async function createConsultant(data: { userId: string; hourlyRate: number; contractType: string; allowOverlappingEntries?: boolean }) {
+export async function createConsultant(data: { userId: string; hourlyRate: number; contractType: string; allowOverlappingEntries?: boolean; requiresApproval?: boolean }) {
   const [user] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, data.userId)).limit(1);
   if (!user) throw new AppError(CONSULTANT.USER_NOT_FOUND, 404);
 
@@ -75,6 +77,7 @@ export async function createConsultant(data: { userId: string; hourlyRate: numbe
       hourlyRate: String(data.hourlyRate),
       contractType: data.contractType as 'clt' | 'pj' | 'horista',
       allowOverlappingEntries: data.allowOverlappingEntries ?? false,
+      requiresApproval: data.requiresApproval ?? false,
     }).returning();
 
     // Update role to 'consultor' if currently 'user'
@@ -88,7 +91,7 @@ export async function createConsultant(data: { userId: string; hourlyRate: numbe
   });
 }
 
-export async function updateConsultant(userId: string, data: Partial<{ hourlyRate: number; contractType: string; allowOverlappingEntries: boolean }>) {
+export async function updateConsultant(userId: string, data: Partial<{ hourlyRate: number; contractType: string; allowOverlappingEntries: boolean; requiresApproval: boolean }>) {
   const [existing] = await db.select({ id: consultantProfiles.id })
     .from(consultantProfiles)
     .where(eq(consultantProfiles.userId, userId))
@@ -99,6 +102,7 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
   if (data.hourlyRate !== undefined) updateData.hourlyRate = String(data.hourlyRate);
   if (data.contractType !== undefined) updateData.contractType = data.contractType;
   if (data.allowOverlappingEntries !== undefined) updateData.allowOverlappingEntries = data.allowOverlappingEntries;
+  if (data.requiresApproval !== undefined) updateData.requiresApproval = data.requiresApproval;
 
   const [updated] = await db.update(consultantProfiles)
     .set(updateData)

@@ -1,4 +1,4 @@
-import { eq, and, between, sql, sum } from 'drizzle-orm';
+import { eq, and, between, sql, sum, inArray } from 'drizzle-orm';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PdfPrinter = require('pdfmake/js/Printer').default;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -71,7 +71,7 @@ export async function getClientReportData(clientId: string, from: string, to: st
     .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .where(and(
       eq(projects.clientId, clientId),
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .orderBy(timeEntries.date, users.name);
@@ -252,7 +252,7 @@ export async function generateBillingPdf(from: string, to: string): Promise<Buff
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .where(and(
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .groupBy(clients.companyName, projects.name, projects.billingRate)
@@ -416,7 +416,7 @@ export async function generatePayrollPdf(from: string, to: string): Promise<Buff
     .innerJoin(consultantProfiles, eq(timeEntries.userId, consultantProfiles.userId))
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .where(and(
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .groupBy(users.name, projects.name, consultantProfiles.hourlyRate, consultantProfiles.contractType)
@@ -664,7 +664,7 @@ export async function getConsultantReportData(
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(timeEntries.userId, consultantUserId),
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .orderBy(projects.name, tickets.code, timeEntries.date);
@@ -1019,7 +1019,7 @@ export async function getEnhancedClientReportData(
     .innerJoin(projects, eq(tickets.projectId, projects.id))
     .leftJoin(timeEntries, and(
       eq(timeEntries.ticketId, tickets.id),
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .where(and(
@@ -1048,7 +1048,7 @@ export async function getEnhancedClientReportData(
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(projects.clientId, clientId),
-      eq(timeEntries.status, 'approved'),
+      inArray(timeEntries.status, ['approved', 'auto_approved']),
       between(timeEntries.date, from, to),
     ))
     .orderBy(timeEntries.date, users.name);

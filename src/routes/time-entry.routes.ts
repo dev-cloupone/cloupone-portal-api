@@ -13,6 +13,7 @@ router.get('/month', timeEntryController.getMonthEntries);
 router.get('/week', timeEntryController.getWeekEntries);
 router.post('/', timeEntryController.upsert);
 router.post('/submit-week', timeEntryController.submitWeek);
+router.post('/:id/submit', timeEntryController.submitEntry);
 router.post('/:id/resubmit', timeEntryController.resubmit);
 router.delete('/:id', timeEntryController.remove);
 
