@@ -12,7 +12,7 @@ export function setRefreshTokenCookie(res: Response, token: string): void {
   res.cookie('refreshToken', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'lax' : 'strict',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'strict',
     maxAge: REFRESH_TOKEN_MAX_AGE,
     path: '/api/auth',
     domain: getCookieDomain(),
@@ -23,7 +23,7 @@ export function clearRefreshTokenCookie(res: Response): void {
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'lax' : 'strict',
+    sameSite: env.NODE_ENV === 'production' ? 'none' : 'strict',
     path: '/api/auth',
     domain: getCookieDomain(),
   });
