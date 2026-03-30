@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { db } from '../db';
 import { files } from '../db/schema';
 import { getS3Client, isR2Configured } from '../config/s3';
@@ -69,4 +70,21 @@ export async function getFileById(fileId: string) {
   return db.query.files.findFirst({
     where: eq(files.id, fileId),
   });
+}
+
+export async function getPresignedUrl(fileId: string): Promise<string> {
+  const record = await getFileById(fileId);
+  if (!record) throw new AppError('Arquivo não encontrado.', 404);
+
+  if (!isR2Configured()) {
+    return record.url;
+  }
+
+  const s3 = getS3Client()!;
+  const command = new GetObjectCommand({
+    Bucket: env.R2_BUCKET_NAME!,
+    Key: record.storageKey,
+  });
+
+  return getSignedUrl(s3, command, { expiresIn: 3600 });
 }

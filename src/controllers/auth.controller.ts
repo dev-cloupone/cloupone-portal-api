@@ -135,7 +135,7 @@ const uploadAvatar: RequestHandler = async (req, res, next) => {
       .where(eq(users.id, req.userId!));
 
     const updatedUser = await authService.getMe(req.userId!);
-    res.json({ user: updatedUser, avatarUrl: fileRecord.url });
+    res.json({ user: updatedUser, avatarUrl: `/uploads/download/${fileRecord.id}` });
   } catch (err) {
     next(err);
   }

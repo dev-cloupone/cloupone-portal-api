@@ -7,5 +7,6 @@ import { uploadsController } from '../controllers/uploads.controller';
 const router = Router();
 
 router.post('/', auth, authenticatedRateLimit, upload.single('file'), uploadsController.upload);
+router.get('/download/:id', uploadsController.download);
 
 export { router as uploadsRoutes };

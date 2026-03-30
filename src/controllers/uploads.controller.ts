@@ -23,4 +23,13 @@ const uploadFile: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const uploadsController = { upload: uploadFile };
+const download: RequestHandler<{ id: string }> = async (req, res, next) => {
+  try {
+    const url = await fileService.getPresignedUrl(req.params.id);
+    res.redirect(url);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadsController = { upload: uploadFile, download };
