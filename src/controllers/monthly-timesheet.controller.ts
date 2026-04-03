@@ -67,6 +67,16 @@ const approve: RequestHandler = async (req, res, next) => {
       throw new AppError('Você não tem permissão para aprovar apontamentos de outro consultor.', 403);
     }
 
+    // Consultants can only approve past months — only admins/gestors can approve early
+    if (req.userRole === 'consultor') {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      if (year > currentYear || (year === currentYear && month >= currentMonth)) {
+        throw new AppError('Você só pode aprovar meses que já foram encerrados.', 400);
+      }
+    }
+
     const result = await monthlyTimesheetService.approve(userId, year, month, req.userId!);
     res.json(result);
   } catch (err) {
