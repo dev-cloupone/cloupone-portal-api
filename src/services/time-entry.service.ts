@@ -1,21 +1,16 @@
-import { eq, and, between, count as drizzleCount, desc, asc, inArray, sql } from 'drizzle-orm';
+import { eq, and, between, count as drizzleCount, desc, asc, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { timeEntries, timeEntryComments, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles } from '../db/schema';
+import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
-import { notifyEntryRejected, notifyWeekApproved } from './notification.service';
+import * as monthlyTimesheetService from './monthly-timesheet.service';
 
 const MSG = {
   NOT_FOUND: 'Apontamento não encontrado.',
   NOT_OWNER: 'Você não pode editar apontamentos de outro consultor.',
-  NOT_DRAFT: 'Apenas apontamentos em rascunho podem ser editados.',
-  NOT_DRAFT_OR_REJECTED: 'Apenas apontamentos em rascunho ou rejeitados podem ser editados.',
-  NOT_REJECTED: 'Apenas apontamentos rejeitados podem ser resubmetidos.',
-  NOT_SUBMITTED: 'Apenas apontamentos submetidos podem ser aprovados ou rejeitados.',
+  MONTH_CLOSED: 'Mês aprovado. Não é possível editar apontamentos.',
   NOT_ALLOCATED: 'Consultor não está alocado neste projeto.',
-  NO_ENTRIES: 'Nenhum apontamento encontrado para submeter nesta semana.',
-  COMMENT_REQUIRED: 'Comentário é obrigatório ao rejeitar um apontamento.',
 } as const;
 
 // --- Time utility functions ---
@@ -70,7 +65,6 @@ async function validateOverlap(
   const conditions = [
     eq(timeEntries.userId, userId),
     eq(timeEntries.date, date),
-    sql`${timeEntries.status} != 'rejected'`,
     sql`${timeEntries.startTime} < ${endTime}::time`,
     sql`${timeEntries.endTime} > ${startTime}::time`,
   ];
@@ -97,14 +91,11 @@ async function validateOverlap(
   }
 }
 
-async function getRequiresApproval(userId: string): Promise<boolean> {
-  const profile = await db
-    .select({ requiresApproval: consultantProfiles.requiresApproval })
-    .from(consultantProfiles)
-    .where(eq(consultantProfiles.userId, userId))
-    .limit(1);
+// --- Helper to extract year/month from date string ---
 
-  return profile[0]?.requiresApproval ?? false;
+function extractYearMonth(dateStr: string): { year: number; month: number } {
+  const d = new Date(dateStr + 'T12:00:00');
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
 // --- Core functions ---
@@ -151,9 +142,6 @@ export async function getMonthEntries(userId: string, date: string) {
       endTime: timeEntries.endTime,
       hours: timeEntries.hours,
       description: timeEntries.description,
-      status: timeEntries.status,
-      submittedAt: timeEntries.submittedAt,
-      approvedAt: timeEntries.approvedAt,
       createdAt: timeEntries.createdAt,
       updatedAt: timeEntries.updatedAt,
       ticketId: timeEntries.ticketId,
@@ -171,30 +159,8 @@ export async function getMonthEntries(userId: string, date: string) {
     ))
     .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
 
-  const rejectedIds = entries.filter(e => e.status === 'rejected').map(e => e.id);
-  let commentsMap: Record<string, string> = {};
-
-  if (rejectedIds.length > 0) {
-    const comments = await db
-      .select({
-        timeEntryId: timeEntryComments.timeEntryId,
-        content: timeEntryComments.content,
-      })
-      .from(timeEntryComments)
-      .where(inArray(timeEntryComments.timeEntryId, rejectedIds))
-      .orderBy(desc(timeEntryComments.createdAt));
-
-    for (const c of comments) {
-      if (!commentsMap[c.timeEntryId]) {
-        commentsMap[c.timeEntryId] = c.content;
-      }
-    }
-  }
-
-  const entriesWithComments = entries.map(e => ({
-    ...e,
-    rejectionComment: commentsMap[e.id] ?? null,
-  }));
+  // Get monthly timesheet status (month was decremented above for Date constructor, so +1 to get back to 1-based)
+  const timesheet = await monthlyTimesheetService.getIfExists(userId, year, month + 1);
 
   const workingDays = countWorkingDays(firstDay, lastDay);
   const targetHours = workingDays * 8;
@@ -202,10 +168,18 @@ export async function getMonthEntries(userId: string, date: string) {
 
   return {
     month: date,
-    entries: entriesWithComments,
+    entries,
     totalHours,
     targetHours,
     workingDays,
+    monthlyTimesheet: timesheet
+      ? {
+          id: timesheet.id,
+          status: timesheet.status,
+          approvedAt: timesheet.approvedAt,
+          reopenReason: timesheet.reopenReason,
+        }
+      : null,
   };
 }
 
@@ -226,9 +200,6 @@ export async function getWeekEntries(userId: string, weekStartDate: string) {
       endTime: timeEntries.endTime,
       hours: timeEntries.hours,
       description: timeEntries.description,
-      status: timeEntries.status,
-      submittedAt: timeEntries.submittedAt,
-      approvedAt: timeEntries.approvedAt,
       createdAt: timeEntries.createdAt,
       updatedAt: timeEntries.updatedAt,
       ticketId: timeEntries.ticketId,
@@ -246,37 +217,11 @@ export async function getWeekEntries(userId: string, weekStartDate: string) {
     ))
     .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
 
-  // Fetch latest rejection comment for rejected entries
-  const rejectedIds = entries.filter(e => e.status === 'rejected').map(e => e.id);
-  let commentsMap: Record<string, string> = {};
-
-  if (rejectedIds.length > 0) {
-    const comments = await db
-      .select({
-        timeEntryId: timeEntryComments.timeEntryId,
-        content: timeEntryComments.content,
-      })
-      .from(timeEntryComments)
-      .where(inArray(timeEntryComments.timeEntryId, rejectedIds))
-      .orderBy(desc(timeEntryComments.createdAt));
-
-    for (const c of comments) {
-      if (!commentsMap[c.timeEntryId]) {
-        commentsMap[c.timeEntryId] = c.content;
-      }
-    }
-  }
-
-  const entriesWithComments = entries.map(e => ({
-    ...e,
-    rejectionComment: commentsMap[e.id] ?? null,
-  }));
-
   const totalHours = entries.reduce((sum, e) => sum + Number(e.hours), 0);
 
   return {
     weekStartDate,
-    entries: entriesWithComments,
+    entries,
     totalHours,
     targetHours: 40,
   };
@@ -302,7 +247,12 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   // 2. Validate time range
   validateTimeRange(startTime, endTime);
 
-  // 3. Validate project allocation
+  // 3. Validate month is open
+  const { year, month } = extractYearMonth(data.date);
+  const isOpen = await monthlyTimesheetService.isMonthOpen(data.userId, year, month);
+  if (!isOpen) throw new AppError(MSG.MONTH_CLOSED, 400);
+
+  // 4. Validate project allocation
   const [allocation] = await db
     .select({ id: projectAllocations.id })
     .from(projectAllocations)
@@ -314,7 +264,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
 
   if (!allocation) throw new AppError(MSG.NOT_ALLOCATED, 400);
 
-  // 4. Validate ticket belongs to project (if provided)
+  // 5. Validate ticket belongs to project (if provided)
   if (data.ticketId) {
     const [ticket] = await db
       .select({ projectId: tickets.projectId })
@@ -327,10 +277,10 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     }
   }
 
-  // 5. Calculate hours
+  // 6. Calculate hours
   const hours = calculateHours(startTime, endTime);
 
-  // 6. If update, verify ownership and status
+  // 7. If update, verify ownership
   if (data.id) {
     const [existing] = await db.select()
       .from(timeEntries)
@@ -339,14 +289,11 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
 
     if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
     if (existing.userId !== data.userId) throw new AppError(MSG.NOT_OWNER, 403);
-    if (existing.status !== 'draft' && existing.status !== 'rejected') {
-      throw new AppError(MSG.NOT_DRAFT_OR_REJECTED, 400);
-    }
 
-    // 7. Validate overlap (excluding self)
+    // 8. Validate overlap (excluding self)
     await validateOverlap(data.userId, data.date, startTime, endTime, data.id);
 
-    // 8. Update
+    // 9. Update
     const [updated] = await db.update(timeEntries).set({
       projectId: data.projectId,
       categoryId: data.categoryId ?? null,
@@ -356,7 +303,6 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
       hours,
       description: data.description ?? null,
       ticketId: data.ticketId ?? null,
-      status: 'draft',
       updatedAt: new Date(),
     }).where(eq(timeEntries.id, data.id)).returning();
 
@@ -364,10 +310,13 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   }
 
   // Insert path:
-  // 7. Validate overlap
+  // 8. Validate overlap
   await validateOverlap(data.userId, data.date, startTime, endTime);
 
-  // 8. Insert
+  // 9. Ensure monthly timesheet exists
+  await monthlyTimesheetService.getOrCreate(data.userId, year, month);
+
+  // 10. Insert
   const [created] = await db.insert(timeEntries).values({
     userId: data.userId,
     projectId: data.projectId,
@@ -387,233 +336,13 @@ export async function deleteTimeEntry(id: string, userId: string) {
   const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
   if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
   if (entry.userId !== userId) throw new AppError(MSG.NOT_OWNER, 403);
-  if (entry.status !== 'draft') throw new AppError(MSG.NOT_DRAFT, 400);
+
+  // Validate month is open
+  const { year, month } = extractYearMonth(entry.date);
+  const isOpen = await monthlyTimesheetService.isMonthOpen(userId, year, month);
+  if (!isOpen) throw new AppError(MSG.MONTH_CLOSED, 400);
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
-}
-
-export async function submitWeek(userId: string, weekStartDate: string) {
-  const weekEnd = getWeekEndDate(weekStartDate);
-
-  const draftEntries = await db
-    .select()
-    .from(timeEntries)
-    .where(and(
-      eq(timeEntries.userId, userId),
-      between(timeEntries.date, weekStartDate, weekEnd),
-      eq(timeEntries.status, 'draft'),
-    ));
-
-  if (draftEntries.length === 0) throw new AppError(MSG.NO_ENTRIES, 400);
-
-  const requiresApproval = await getRequiresApproval(userId);
-  const now = new Date();
-  const draftEntryIds = draftEntries.map(e => e.id);
-
-  if (requiresApproval) {
-    await db.update(timeEntries).set({
-      status: 'submitted',
-      submittedAt: now,
-      updatedAt: now,
-    }).where(inArray(timeEntries.id, draftEntryIds));
-  } else {
-    await db.update(timeEntries).set({
-      status: 'auto_approved',
-      submittedAt: now,
-      approvedAt: now,
-      approvedBy: null,
-      updatedAt: now,
-    }).where(inArray(timeEntries.id, draftEntryIds));
-  }
-
-  // Build warnings
-  const warnings: string[] = [];
-  const totalHours = draftEntries.reduce((sum, e) => sum + Number(e.hours), 0);
-  if (totalHours < 40) {
-    warnings.push(`Total de horas (${totalHours}h) está abaixo da meta semanal (40h).`);
-  }
-
-  // Check days without entries
-  const entryDates = new Set(draftEntries.map(e => e.date));
-  const weekDays = [];
-  const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-  for (let i = 0; i < 5; i++) {
-    const d = new Date(weekStartDate);
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    const dayIndex = d.getDay();
-    weekDays.push({ date: dateStr, dayName: dayNames[dayIndex] });
-  }
-  const missingDays = weekDays.filter(d => !entryDates.has(d.date));
-  if (missingDays.length > 0) {
-    warnings.push(`Sem apontamento em: ${missingDays.map(d => d.dayName).join(', ')}.`);
-  }
-
-  // Check days with >12h
-  const hoursByDate = new Map<string, number>();
-  for (const e of draftEntries) {
-    hoursByDate.set(e.date, (hoursByDate.get(e.date) ?? 0) + Number(e.hours));
-  }
-  for (const [date, dayHours] of hoursByDate) {
-    if (dayHours > 12) {
-      const d = new Date(date + 'T12:00:00');
-      const dayName = dayNames[d.getDay()];
-      warnings.push(`${dayName} tem mais de 12h registradas (${dayHours.toFixed(1)}h).`);
-    }
-  }
-
-  return { submitted: draftEntries.length, warnings, autoApproved: !requiresApproval };
-}
-
-export async function submitEntry(entryId: string, userId: string) {
-  const [entry] = await db
-    .select()
-    .from(timeEntries)
-    .where(
-      and(
-        eq(timeEntries.id, entryId),
-        eq(timeEntries.userId, userId),
-        eq(timeEntries.status, 'draft'),
-      ),
-    )
-    .limit(1);
-
-  if (!entry) {
-    throw new AppError('Entry not found or not in draft status', 404);
-  }
-
-  const requiresApproval = await getRequiresApproval(userId);
-  const now = new Date();
-
-  if (requiresApproval) {
-    await db
-      .update(timeEntries)
-      .set({ status: 'submitted', submittedAt: now, updatedAt: now })
-      .where(eq(timeEntries.id, entryId));
-
-    return { status: 'submitted' as const };
-  } else {
-    await db
-      .update(timeEntries)
-      .set({
-        status: 'auto_approved',
-        submittedAt: now,
-        approvedAt: now,
-        approvedBy: null,
-        updatedAt: now,
-      })
-      .where(eq(timeEntries.id, entryId));
-
-    return { status: 'auto_approved' as const };
-  }
-}
-
-export async function listPendingApprovals(params: PaginationParams & { consultantId?: string }) {
-  const { page, limit, consultantId } = params;
-  const offset = (page - 1) * limit;
-
-  const conditions = [eq(timeEntries.status, 'submitted')];
-  if (consultantId) conditions.push(eq(timeEntries.userId, consultantId));
-
-  const where = and(...conditions);
-
-  const [data, [{ total }]] = await Promise.all([
-    db
-      .select({
-        id: timeEntries.id,
-        userId: timeEntries.userId,
-        userName: users.name,
-        userEmail: users.email,
-        projectId: timeEntries.projectId,
-        projectName: projects.name,
-        clientName: clients.companyName,
-        categoryId: timeEntries.categoryId,
-        categoryName: activityCategories.name,
-        date: timeEntries.date,
-        startTime: timeEntries.startTime,
-        endTime: timeEntries.endTime,
-        hours: timeEntries.hours,
-        description: timeEntries.description,
-        status: timeEntries.status,
-        submittedAt: timeEntries.submittedAt,
-        ticketId: timeEntries.ticketId,
-        ticketCode: tickets.code,
-        ticketTitle: tickets.title,
-      })
-      .from(timeEntries)
-      .leftJoin(users, eq(timeEntries.userId, users.id))
-      .leftJoin(projects, eq(timeEntries.projectId, projects.id))
-      .leftJoin(clients, eq(projects.clientId, clients.id))
-      .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
-      .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
-      .where(where)
-      .orderBy(timeEntries.submittedAt, timeEntries.date, asc(timeEntries.startTime))
-      .limit(limit)
-      .offset(offset),
-    db.select({ total: drizzleCount() }).from(timeEntries).where(where),
-  ]);
-
-  return { data, meta: buildMeta(total, { page, limit }) };
-}
-
-export async function approveEntries(entryIds: string[], approvedBy: string) {
-  const entries = await db
-    .select({ id: timeEntries.id, status: timeEntries.status })
-    .from(timeEntries)
-    .where(inArray(timeEntries.id, entryIds));
-
-  const notSubmitted = entries.filter(e => e.status !== 'submitted');
-  if (notSubmitted.length > 0) throw new AppError(MSG.NOT_SUBMITTED, 400);
-
-  const now = new Date();
-  await db.update(timeEntries).set({
-    status: 'approved',
-    approvedAt: now,
-    approvedBy,
-    updatedAt: now,
-  }).where(inArray(timeEntries.id, entryIds));
-
-  notifyWeekApproved(entryIds, approvedBy);
-
-  return { approved: entryIds.length };
-}
-
-export async function rejectEntry(entryId: string, rejectedBy: string, comment: string) {
-  if (!comment.trim()) throw new AppError(MSG.COMMENT_REQUIRED, 400);
-
-  const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, entryId)).limit(1);
-  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
-  if (entry.status !== 'submitted') throw new AppError(MSG.NOT_SUBMITTED, 400);
-
-  await db.transaction(async (tx) => {
-    await tx.update(timeEntries).set({
-      status: 'rejected',
-      updatedAt: new Date(),
-    }).where(eq(timeEntries.id, entryId));
-
-    await tx.insert(timeEntryComments).values({
-      timeEntryId: entryId,
-      userId: rejectedBy,
-      content: comment,
-    });
-  });
-
-  notifyEntryRejected(entryId, comment, rejectedBy);
-}
-
-export async function resubmitEntry(entryId: string, userId: string) {
-  const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, entryId)).limit(1);
-  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
-  if (entry.userId !== userId) throw new AppError(MSG.NOT_OWNER, 403);
-  if (entry.status !== 'rejected') throw new AppError(MSG.NOT_REJECTED, 400);
-
-  const [updated] = await db.update(timeEntries).set({
-    status: 'submitted',
-    submittedAt: new Date(),
-    updatedAt: new Date(),
-  }).where(eq(timeEntries.id, entryId)).returning();
-
-  return updated;
 }
 
 export async function listTimeEntries(params: PaginationParams & {
@@ -621,15 +350,13 @@ export async function listTimeEntries(params: PaginationParams & {
   projectId?: string;
   from?: string;
   to?: string;
-  status?: string;
 }) {
-  const { page, limit, userId, projectId, from, to, status } = params;
+  const { page, limit, userId, projectId, from, to } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [];
   if (userId) conditions.push(eq(timeEntries.userId, userId));
   if (projectId) conditions.push(eq(timeEntries.projectId, projectId));
-  if (status) conditions.push(eq(timeEntries.status, status as 'draft' | 'submitted' | 'approved' | 'rejected' | 'auto_approved'));
   if (from && to) conditions.push(between(timeEntries.date, from, to));
   else if (from) conditions.push(sql`${timeEntries.date} >= ${from}`);
   else if (to) conditions.push(sql`${timeEntries.date} <= ${to}`);
@@ -652,10 +379,6 @@ export async function listTimeEntries(params: PaginationParams & {
         endTime: timeEntries.endTime,
         hours: timeEntries.hours,
         description: timeEntries.description,
-        status: timeEntries.status,
-        submittedAt: timeEntries.submittedAt,
-        approvedAt: timeEntries.approvedAt,
-        approvedBy: timeEntries.approvedBy,
         createdAt: timeEntries.createdAt,
         ticketId: timeEntries.ticketId,
         ticketCode: tickets.code,

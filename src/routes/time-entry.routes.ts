@@ -12,15 +12,7 @@ router.use(auth, authenticatedRateLimit);
 router.get('/month', timeEntryController.getMonthEntries);
 router.get('/week', timeEntryController.getWeekEntries);
 router.post('/', timeEntryController.upsert);
-router.post('/submit-week', timeEntryController.submitWeek);
-router.post('/:id/submit', timeEntryController.submitEntry);
-router.post('/:id/resubmit', timeEntryController.resubmit);
 router.delete('/:id', timeEntryController.remove);
-
-// Gestor/Admin endpoints
-router.get('/pending', authorize('super_admin', 'gestor'), timeEntryController.listPending);
-router.post('/approve', authorize('super_admin', 'gestor'), timeEntryController.approve);
-router.post('/:id/reject', authorize('super_admin', 'gestor'), timeEntryController.reject);
 
 // General listing (for reports)
 router.get('/', authorize('super_admin', 'gestor'), timeEntryController.list);

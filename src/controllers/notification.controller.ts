@@ -10,18 +10,9 @@ const sendDailyReminders: RequestHandler = async (_req, res, next) => {
   }
 };
 
-const sendWeeklyReminders: RequestHandler = async (_req, res, next) => {
+const sendMonthlyReminders: RequestHandler = async (_req, res, next) => {
   try {
-    const result = await notificationService.sendWeeklyReminders();
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const sendOverdueReminders: RequestHandler = async (_req, res, next) => {
-  try {
-    const result = await notificationService.sendOverdueReminders();
+    const result = await notificationService.sendMonthlyReminders();
     res.json(result);
   } catch (err) {
     next(err);
@@ -30,6 +21,5 @@ const sendOverdueReminders: RequestHandler = async (_req, res, next) => {
 
 export const notificationController = {
   sendDailyReminders,
-  sendWeeklyReminders,
-  sendOverdueReminders,
+  sendMonthlyReminders,
 };

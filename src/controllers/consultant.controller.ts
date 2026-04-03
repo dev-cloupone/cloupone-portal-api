@@ -12,14 +12,12 @@ const createConsultantSchema = z.object({
   hourlyRate: z.number().positive(V.greaterThanZero),
   contractType: z.enum(['clt', 'pj', 'horista'], { message: V.enumInvalid('Tipo de Contrato') }),
   allowOverlappingEntries: z.boolean().optional(),
-  requiresApproval: z.boolean().optional(),
 });
 
 const updateConsultantSchema = z.object({
   hourlyRate: z.number().positive(V.greaterThanZero).optional(),
   contractType: z.enum(['clt', 'pj', 'horista'], { message: V.enumInvalid('Tipo de Contrato') }).optional(),
   allowOverlappingEntries: z.boolean().optional(),
-  requiresApproval: z.boolean().optional(),
 });
 
 const list: RequestHandler = async (req, res, next) => {

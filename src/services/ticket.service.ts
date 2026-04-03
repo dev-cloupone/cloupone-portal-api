@@ -654,7 +654,6 @@ export async function listTicketTimeEntries(ticketId: string, userId: string, us
       date: timeEntries.date,
       hours: timeEntries.hours,
       description: timeEntries.description,
-      status: timeEntries.status,
     })
     .from(timeEntries)
     .innerJoin(users, eq(timeEntries.userId, users.id))

@@ -19,18 +19,6 @@ const upsertEntrySchema = z.object({
   ticketId: z.string().uuid(V.uuidInvalid('Ticket')).nullable().optional(),
 });
 
-const submitWeekSchema = z.object({
-  weekStartDate: z.string().regex(dateRegex, V.dateInvalid),
-});
-
-const approveEntriesSchema = z.object({
-  entryIds: z.array(z.string().uuid()).min(1, 'Selecione pelo menos um apontamento.'),
-});
-
-const rejectEntrySchema = z.object({
-  comment: z.string().min(1, V.required('Comentário')).max(500, V.max('Comentário', 500)),
-});
-
 const idSchema = z.string().uuid();
 
 const getMonthEntries: RequestHandler = async (req, res, next) => {
@@ -82,72 +70,6 @@ const remove: RequestHandler = async (req, res, next) => {
   }
 };
 
-const submitWeek: RequestHandler = async (req, res, next) => {
-  try {
-    const { weekStartDate } = submitWeekSchema.parse(req.body);
-    const result = await timeEntryService.submitWeek(req.userId!, weekStartDate);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const submitEntrySchema = z.object({
-  params: z.object({
-    id: z.string().uuid(),
-  }),
-});
-
-const submitEntry: RequestHandler = async (req, res, next) => {
-  try {
-    const { params: { id } } = submitEntrySchema.parse({ params: req.params });
-    const result = await timeEntryService.submitEntry(id, req.userId!);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const resubmit: RequestHandler = async (req, res, next) => {
-  try {
-    const result = await timeEntryService.resubmitEntry(idSchema.parse(req.params.id), req.userId!);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const listPending: RequestHandler = async (req, res, next) => {
-  try {
-    const { page, limit } = paginationSchema.parse(req.query);
-    const consultantId = req.query.consultantId as string | undefined;
-    const result = await timeEntryService.listPendingApprovals({ page, limit, consultantId });
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const approve: RequestHandler = async (req, res, next) => {
-  try {
-    const { entryIds } = approveEntriesSchema.parse(req.body);
-    const result = await timeEntryService.approveEntries(entryIds, req.userId!);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
-const reject: RequestHandler = async (req, res, next) => {
-  try {
-    const { comment } = rejectEntrySchema.parse(req.body);
-    await timeEntryService.rejectEntry(idSchema.parse(req.params.id), req.userId!, comment);
-    res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-};
-
 const list: RequestHandler = async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
@@ -158,7 +80,6 @@ const list: RequestHandler = async (req, res, next) => {
       projectId: req.query.projectId as string | undefined,
       from: req.query.from as string | undefined,
       to: req.query.to as string | undefined,
-      status: req.query.status as string | undefined,
     });
     res.json(result);
   } catch (err) {
@@ -171,11 +92,5 @@ export const timeEntryController = {
   getWeekEntries,
   upsert,
   remove,
-  submitWeek,
-  submitEntry,
-  resubmit,
-  listPending,
-  approve,
-  reject,
   list,
 };

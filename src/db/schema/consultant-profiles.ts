@@ -9,7 +9,6 @@ export const consultantProfiles = pgTable('consultant_profiles', {
   hourlyRate: decimal('hourly_rate', { precision: 10, scale: 2 }).notNull(),
   contractType: contractTypeEnum('contract_type').notNull().default('pj'),
   allowOverlappingEntries: boolean('allow_overlapping_entries').default(false).notNull(),
-  requiresApproval: boolean('requires_approval').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -25,6 +25,7 @@ import { ticketRoutes } from './routes/ticket.routes';
 import { expenseCategoryRoutes } from './routes/expense-category.routes';
 import { expenseRoutes } from './routes/expense.routes';
 import { expenseTemplateRoutes } from './routes/expense-template.routes';
+import { monthlyTimesheetRoutes } from './routes/monthly-timesheet.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
 
@@ -91,6 +92,7 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/expense-categories', expenseCategoryRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/expense-templates', expenseTemplateRoutes);
+app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 
 app.use(errorHandler);
 

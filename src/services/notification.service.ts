@@ -1,13 +1,12 @@
-import { eq, and, between, sql, notInArray } from 'drizzle-orm';
+import { eq, and, between, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { users, timeEntries, consultantProfiles, projects, clients } from '../db/schema';
+import { users, timeEntries, consultantProfiles, monthlyTimesheets } from '../db/schema';
 import { getEmailProvider } from '../providers/email';
 import { getSettingsMap } from './platform-settings.service';
 import { buildDailyReminderEmail } from '../emails/daily-reminder';
-import { buildWeeklyReminderEmail } from '../emails/weekly-reminder';
-import { buildEntryRejectedEmail } from '../emails/entry-rejected';
-import { buildWeekApprovedEmail } from '../emails/week-approved';
-import { buildOverdueWeekEmail } from '../emails/overdue-week';
+import { buildMonthApprovedEmail } from '../emails/month-approved';
+import { buildMonthReopenedEmail } from '../emails/month-reopened';
+import { buildMonthEscalationEmail } from '../emails/month-escalation';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -15,24 +14,18 @@ function getTimesheetUrl(): string {
   return `${env.FRONTEND_URL}/timesheet`;
 }
 
-function getWeekEndDate(weekStartDate: string): string {
-  const start = new Date(weekStartDate);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return end.toISOString().split('T')[0];
-}
-
-function getStartOfWeek(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday start
-  d.setDate(diff);
-  return d.toISOString().split('T')[0];
-}
-
 function formatDateBR(dateStr: string): string {
   const [year, month, day] = dateStr.split('-');
   return `${day}/${month}/${year}`;
+}
+
+const MONTH_NAMES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+function formatMonthYear(month: number, year: number): string {
+  return `${MONTH_NAMES[month - 1]}/${year}`;
 }
 
 async function getAppName(): Promise<string> {
@@ -40,129 +33,126 @@ async function getAppName(): Promise<string> {
   return settings['app_name'] || 'Template Base';
 }
 
-export async function notifyEntryRejected(entryId: string, comment: string, rejectedBy: string) {
+export async function notifyMonthApproved(userId: string, year: number, month: number) {
   try {
-    // Get entry details with project and user info
-    const [entry] = await db
-      .select({
-        date: timeEntries.date,
-        startTime: timeEntries.startTime,
-        endTime: timeEntries.endTime,
-        hours: timeEntries.hours,
-        userId: timeEntries.userId,
-        userName: users.name,
-        userEmail: users.email,
-        projectName: projects.name,
-      })
-      .from(timeEntries)
-      .innerJoin(users, eq(timeEntries.userId, users.id))
-      .leftJoin(projects, eq(timeEntries.projectId, projects.id))
-      .where(eq(timeEntries.id, entryId))
-      .limit(1);
-
-    if (!entry) return;
-
-    // Get reviewer name
-    const [reviewer] = await db
-      .select({ name: users.name })
+    const [user] = await db
+      .select({ name: users.name, email: users.email })
       .from(users)
-      .where(eq(users.id, rejectedBy))
+      .where(eq(users.id, userId))
       .limit(1);
+
+    if (!user) return;
+
+    // Get total hours for this month
+    const firstDay = new Date(year, month - 1, 1).toISOString().split('T')[0];
+    const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+
+    const [result] = await db
+      .select({ total: sql<string>`COALESCE(SUM(${timeEntries.hours}), 0)` })
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.userId, userId),
+        between(timeEntries.date, firstDay, lastDay),
+      ));
+
+    const totalHours = Number(result?.total) || 0;
+    const appName = await getAppName();
+    const monthYear = formatMonthYear(month, year);
+
+    const emailData = buildMonthApprovedEmail({
+      userName: user.name,
+      monthYear,
+      totalHours,
+      appName,
+    });
+
+    const emailProvider = getEmailProvider();
+    await emailProvider.send({
+      to: user.email,
+      subject: emailData.subject,
+      text: emailData.text,
+      html: emailData.html,
+    });
+
+    logger.info({ userId, year, month }, 'Month approved notification sent');
+  } catch (err) {
+    logger.error({ err, userId, year, month }, 'Failed to send month approved notification');
+  }
+}
+
+export async function notifyMonthReopened(userId: string, year: number, month: number, reason: string) {
+  try {
+    const [user] = await db
+      .select({ name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) return;
 
     const appName = await getAppName();
-    const timeRange = `${entry.startTime.slice(0, 5)}-${entry.endTime.slice(0, 5)}`;
+    const monthYear = formatMonthYear(month, year);
 
-    const emailData = buildEntryRejectedEmail({
-      userName: entry.userName,
-      date: `${formatDateBR(entry.date)} (${timeRange})`,
-      projectName: entry.projectName || 'Sem projeto',
-      hours: Number(entry.hours),
-      comment,
-      reviewerName: reviewer?.name || 'Gestor',
+    const emailData = buildMonthReopenedEmail({
+      userName: user.name,
+      monthYear,
+      reason,
       appName,
       timesheetUrl: getTimesheetUrl(),
     });
 
     const emailProvider = getEmailProvider();
     await emailProvider.send({
-      to: entry.userEmail,
+      to: user.email,
       subject: emailData.subject,
       text: emailData.text,
       html: emailData.html,
     });
 
-    logger.info({ entryId, userId: entry.userId }, 'Entry rejected notification sent');
+    logger.info({ userId, year, month }, 'Month reopened notification sent');
   } catch (err) {
-    logger.error({ err, entryId }, 'Failed to send entry rejected notification');
+    logger.error({ err, userId, year, month }, 'Failed to send month reopened notification');
   }
 }
 
-export async function notifyWeekApproved(entryIds: string[], approvedBy: string) {
+export async function notifyEscalation(userId: string, year: number, month: number, gestorId: string) {
   try {
-    // Get approved entries grouped by user
-    const entries = await db
-      .select({
-        userId: timeEntries.userId,
-        userName: users.name,
-        userEmail: users.email,
-        date: timeEntries.date,
-        hours: timeEntries.hours,
-      })
-      .from(timeEntries)
-      .innerJoin(users, eq(timeEntries.userId, users.id))
-      .where(
-        sql`${timeEntries.id} IN ${entryIds}`,
-      );
+    const [user] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-    if (entries.length === 0) return;
+    const [gestor] = await db
+      .select({ name: users.name, email: users.email })
+      .from(users)
+      .where(eq(users.id, gestorId))
+      .limit(1);
 
-    // Group by user
-    const byUser = new Map<string, { userName: string; userEmail: string; dates: string[]; totalHours: number; count: number }>();
-    for (const entry of entries) {
-      const existing = byUser.get(entry.userId);
-      if (existing) {
-        existing.dates.push(entry.date);
-        existing.totalHours += Number(entry.hours);
-        existing.count += 1;
-      } else {
-        byUser.set(entry.userId, {
-          userName: entry.userName,
-          userEmail: entry.userEmail,
-          dates: [entry.date],
-          totalHours: Number(entry.hours),
-          count: 1,
-        });
-      }
-    }
+    if (!user || !gestor) return;
 
     const appName = await getAppName();
+    const monthYear = formatMonthYear(month, year);
+
+    const emailData = buildMonthEscalationEmail({
+      gestorName: gestor.name,
+      consultantName: user.name,
+      monthYear,
+      appName,
+      timesheetUrl: getTimesheetUrl(),
+    });
+
     const emailProvider = getEmailProvider();
+    await emailProvider.send({
+      to: gestor.email,
+      subject: emailData.subject,
+      text: emailData.text,
+      html: emailData.html,
+    });
 
-    for (const [userId, data] of byUser) {
-      const sortedDates = data.dates.sort();
-      const weekStart = formatDateBR(sortedDates[0]);
-      const weekEnd = formatDateBR(sortedDates[sortedDates.length - 1]);
-
-      const emailData = buildWeekApprovedEmail({
-        userName: data.userName,
-        weekStart,
-        weekEnd,
-        totalHours: data.totalHours,
-        approvedCount: data.count,
-        appName,
-      });
-
-      await emailProvider.send({
-        to: data.userEmail,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
-
-      logger.info({ userId, approvedCount: data.count }, 'Week approved notification sent');
-    }
+    logger.info({ userId, gestorId, year, month }, 'Escalation notification sent');
   } catch (err) {
-    logger.error({ err, entryIds }, 'Failed to send week approved notifications');
+    logger.error({ err, userId, year, month }, 'Failed to send escalation notification');
   }
 }
 
@@ -231,10 +221,10 @@ export async function sendDailyReminders() {
   return { sent, total: toNotify.length };
 }
 
-export async function sendWeeklyReminders() {
-  const today = new Date();
-  const weekStart = getStartOfWeek(today);
-  const weekEnd = getWeekEndDate(weekStart);
+export async function sendMonthlyReminders() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
 
   // Find all active consultants
   const consultants = await db
@@ -252,30 +242,37 @@ export async function sendWeeklyReminders() {
 
   for (const consultant of consultants) {
     try {
-      // Get draft entries for this week (not yet submitted)
-      const draftEntries = await db
-        .select({ hours: timeEntries.hours })
-        .from(timeEntries)
+      // Check for open/reopened months that are previous to current month
+      const pendingMonths = await db
+        .select({ year: monthlyTimesheets.year, month: monthlyTimesheets.month })
+        .from(monthlyTimesheets)
         .where(and(
-          eq(timeEntries.userId, consultant.userId),
-          between(timeEntries.date, weekStart, weekEnd),
-          eq(timeEntries.status, 'draft'),
+          eq(monthlyTimesheets.userId, consultant.userId),
+          sql`${monthlyTimesheets.status} IN ('open', 'reopened')`,
+          sql`(${monthlyTimesheets.year} < ${currentYear} OR (${monthlyTimesheets.year} = ${currentYear} AND ${monthlyTimesheets.month} < ${currentMonth}))`,
         ));
 
-      // Skip if no draft entries (either already submitted or empty)
-      if (draftEntries.length === 0) continue;
+      if (pendingMonths.length === 0) continue;
 
-      const totalHours = draftEntries.reduce((sum, e) => sum + Number(e.hours), 0);
+      const monthList = pendingMonths.map(m => formatMonthYear(m.month, m.year)).join(', ');
 
-      const emailData = buildWeeklyReminderEmail({
+      // Use daily reminder template with custom message about pending months
+      const emailData = buildDailyReminderEmail({
         userName: consultant.userName,
-        weekStart: formatDateBR(weekStart),
-        weekEnd: formatDateBR(weekEnd),
-        totalHours,
-        targetHours: 40,
+        date: monthList,
         appName,
         timesheetUrl: getTimesheetUrl(),
       });
+
+      // Override subject for monthly context
+      emailData.subject = `Lembrete: Aprovação pendente para ${monthList}`;
+      emailData.text = [
+        `Olá, ${consultant.userName}!`,
+        '',
+        `Você possui meses pendentes de aprovação: ${monthList}.`,
+        '',
+        `Acesse o sistema para aprovar seus apontamentos: ${getTimesheetUrl()}`,
+      ].join('\n');
 
       await emailProvider.send({
         to: consultant.userEmail,
@@ -286,75 +283,10 @@ export async function sendWeeklyReminders() {
 
       sent++;
     } catch (err) {
-      logger.error({ err, userId: consultant.userId }, 'Failed to send weekly reminder');
+      logger.error({ err, userId: consultant.userId }, 'Failed to send monthly reminder');
     }
   }
 
-  logger.info({ sent, total: consultants.length }, 'Weekly reminders sent');
-  return { sent, total: consultants.length };
-}
-
-export async function sendOverdueReminders() {
-  const today = new Date();
-  // Get previous week's start date
-  const prevWeekDate = new Date(today);
-  prevWeekDate.setDate(prevWeekDate.getDate() - 7);
-  const prevWeekStart = getStartOfWeek(prevWeekDate);
-  const prevWeekEnd = getWeekEndDate(prevWeekStart);
-
-  // Find all active consultants
-  const consultants = await db
-    .select({
-      userId: consultantProfiles.userId,
-      userName: users.name,
-      userEmail: users.email,
-    })
-    .from(consultantProfiles)
-    .innerJoin(users, and(eq(consultantProfiles.userId, users.id), eq(users.isActive, true)));
-
-  const appName = await getAppName();
-  const emailProvider = getEmailProvider();
-  let sent = 0;
-
-  for (const consultant of consultants) {
-    try {
-      // Check for draft entries in previous week (not submitted)
-      const draftEntries = await db
-        .select({ hours: timeEntries.hours })
-        .from(timeEntries)
-        .where(and(
-          eq(timeEntries.userId, consultant.userId),
-          between(timeEntries.date, prevWeekStart, prevWeekEnd),
-          eq(timeEntries.status, 'draft'),
-        ));
-
-      // Skip if no overdue entries
-      if (draftEntries.length === 0) continue;
-
-      const totalHours = draftEntries.reduce((sum, e) => sum + Number(e.hours), 0);
-
-      const emailData = buildOverdueWeekEmail({
-        userName: consultant.userName,
-        weekStart: formatDateBR(prevWeekStart),
-        weekEnd: formatDateBR(prevWeekEnd),
-        totalHours,
-        appName,
-        timesheetUrl: getTimesheetUrl(),
-      });
-
-      await emailProvider.send({
-        to: consultant.userEmail,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
-
-      sent++;
-    } catch (err) {
-      logger.error({ err, userId: consultant.userId }, 'Failed to send overdue reminder');
-    }
-  }
-
-  logger.info({ sent, total: consultants.length }, 'Overdue reminders sent');
+  logger.info({ sent, total: consultants.length }, 'Monthly reminders sent');
   return { sent, total: consultants.length };
 }

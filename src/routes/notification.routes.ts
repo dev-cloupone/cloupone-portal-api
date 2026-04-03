@@ -10,7 +10,6 @@ router.use(auth, authenticatedRateLimit);
 
 // Manual triggers — super_admin only
 router.post('/daily-reminders', authorize('super_admin'), notificationController.sendDailyReminders);
-router.post('/weekly-reminders', authorize('super_admin'), notificationController.sendWeeklyReminders);
-router.post('/overdue-reminders', authorize('super_admin'), notificationController.sendOverdueReminders);
+router.post('/monthly-reminders', authorize('super_admin'), notificationController.sendMonthlyReminders);
 
 export { router as notificationRoutes };

@@ -1,6 +1,6 @@
 import { eq, and, between, sql, sum, count as drizzleCount } from 'drizzle-orm';
 import { db } from '../db';
-import { timeEntries, projects, clients, users, consultantProfiles } from '../db/schema';
+import { timeEntries, projects, clients, users, consultantProfiles, monthlyTimesheets } from '../db/schema';
 
 function getMonthRange(date: Date): { from: string; to: string } {
   const year = date.getFullYear();
@@ -19,42 +19,45 @@ function getWeekRange(date: Date): { from: string; to: string } {
   return { from, to };
 }
 
+// SQL condition for entries in approved months
+const approvedMonthCondition = sql`EXISTS (SELECT 1 FROM monthly_timesheets mt WHERE mt.user_id = ${timeEntries.userId} AND mt.year = EXTRACT(YEAR FROM ${timeEntries.date})::integer AND mt.month = EXTRACT(MONTH FROM ${timeEntries.date})::integer AND mt.status = 'approved')`;
+
 export async function getManagerDashboard() {
   const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
   const { from: monthFrom, to: monthTo } = getMonthRange(now);
 
-  // Total hours this month (all statuses except draft)
+  // Total hours this month (all entries)
   const [totalMonth] = await db
     .select({ total: sum(timeEntries.hours) })
     .from(timeEntries)
-    .where(and(
-      between(timeEntries.date, monthFrom, monthTo),
-      sql`${timeEntries.status} != 'draft'`,
-    ));
+    .where(between(timeEntries.date, monthFrom, monthTo));
 
-  // Hours approved this month
+  // Hours approved this month (via monthly_timesheets)
   const [approvedMonth] = await db
     .select({ total: sum(timeEntries.hours) })
     .from(timeEntries)
     .where(and(
       between(timeEntries.date, monthFrom, monthTo),
-      eq(timeEntries.status, 'approved'),
+      approvedMonthCondition,
     ));
 
-  // Hours pending this month
-  const [pendingMonth] = await db
-    .select({ total: sum(timeEntries.hours) })
-    .from(timeEntries)
-    .where(and(
-      between(timeEntries.date, monthFrom, monthTo),
-      eq(timeEntries.status, 'submitted'),
-    ));
-
-  // Pending approval count (all time)
+  // Pending approval count (months open/reopened for previous months)
   const [pendingCount] = await db
     .select({ total: drizzleCount() })
-    .from(timeEntries)
-    .where(eq(timeEntries.status, 'submitted'));
+    .from(monthlyTimesheets)
+    .where(
+      and(
+        sql`${monthlyTimesheets.status} IN ('open', 'reopened')`,
+        sql`(${monthlyTimesheets.year} < ${currentYear} OR (${monthlyTimesheets.year} = ${currentYear} AND ${monthlyTimesheets.month} < ${currentMonth}))`,
+      ),
+    );
+
+  // Hours pending = total - approved
+  const totalHoursApproved = Number(approvedMonth.total) || 0;
+  const totalHoursThisMonth = Number(totalMonth.total) || 0;
+  const totalHoursPending = totalHoursThisMonth - totalHoursApproved;
 
   // Hours by project (this month, approved)
   const hoursByProject = await db
@@ -66,7 +69,7 @@ export async function getManagerDashboard() {
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .where(and(
       between(timeEntries.date, monthFrom, monthTo),
-      eq(timeEntries.status, 'approved'),
+      approvedMonthCondition,
     ))
     .groupBy(projects.name)
     .orderBy(sql`sum(${timeEntries.hours}) DESC`)
@@ -82,7 +85,7 @@ export async function getManagerDashboard() {
     .innerJoin(users, eq(timeEntries.userId, users.id))
     .where(and(
       between(timeEntries.date, monthFrom, monthTo),
-      eq(timeEntries.status, 'approved'),
+      approvedMonthCondition,
     ))
     .groupBy(users.name)
     .orderBy(sql`sum(${timeEntries.hours}) DESC`)
@@ -96,7 +99,7 @@ export async function getManagerDashboard() {
     })
     .from(timeEntries)
     .where(and(
-      eq(timeEntries.status, 'approved'),
+      approvedMonthCondition,
       sql`${timeEntries.date}::date >= (CURRENT_DATE - INTERVAL '6 months')`,
     ))
     .groupBy(sql`to_char(${timeEntries.date}::date, 'YYYY-MM')`)
@@ -112,7 +115,7 @@ export async function getManagerDashboard() {
     .from(projects)
     .innerJoin(timeEntries, and(
       eq(timeEntries.projectId, projects.id),
-      eq(timeEntries.status, 'approved'),
+      approvedMonthCondition,
     ))
     .where(and(
       eq(projects.isActive, true),
@@ -129,9 +132,9 @@ export async function getManagerDashboard() {
     .sort((a, b) => b.usedPercent - a.usedPercent);
 
   return {
-    totalHoursThisMonth: Number(totalMonth.total) || 0,
-    totalHoursApproved: Number(approvedMonth.total) || 0,
-    totalHoursPending: Number(pendingMonth.total) || 0,
+    totalHoursThisMonth,
+    totalHoursApproved,
+    totalHoursPending,
     pendingApprovalCount: pendingCount.total,
     hoursByProject: hoursByProject.map((r) => ({
       projectName: r.projectName,
@@ -187,19 +190,6 @@ export async function getConsultantDashboard(userId: string) {
     .groupBy(projects.name)
     .orderBy(sql`sum(${timeEntries.hours}) DESC`);
 
-  // Status breakdown (this month)
-  const statusBreakdown = await db
-    .select({
-      status: timeEntries.status,
-      hours: sum(timeEntries.hours),
-    })
-    .from(timeEntries)
-    .where(and(
-      eq(timeEntries.userId, userId),
-      between(timeEntries.date, monthFrom, monthTo),
-    ))
-    .groupBy(timeEntries.status);
-
   // Monthly history (last 6 months)
   const monthlyHistory = await db
     .select({
@@ -220,10 +210,6 @@ export async function getConsultantDashboard(userId: string) {
     weeklyTarget: 40,
     projectBreakdown: projectBreakdown.map((r) => ({
       projectName: r.projectName,
-      hours: Number(r.hours) || 0,
-    })),
-    statusBreakdown: statusBreakdown.map((r) => ({
-      status: r.status,
       hours: Number(r.hours) || 0,
     })),
     monthlyHistory: monthlyHistory.map((r) => ({
