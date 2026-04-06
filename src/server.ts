@@ -26,6 +26,7 @@ import { expenseCategoryRoutes } from './routes/expense-category.routes';
 import { expenseRoutes } from './routes/expense.routes';
 import { expenseTemplateRoutes } from './routes/expense-template.routes';
 import { monthlyTimesheetRoutes } from './routes/monthly-timesheet.routes';
+import { phaseRoutes } from './routes/phase.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
 
@@ -81,6 +82,7 @@ app.use('/api/admin/settings', adminSettingsRoutes);
 app.use('/api/settings/public', publicSettingsRoutes);
 app.use('/api/uploads', uploadsRoutes);
 app.use('/api/clients', clientRoutes);
+app.use('/api', phaseRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/consultants', consultantRoutes);
 app.use('/api/activity-categories', activityCategoryRoutes);

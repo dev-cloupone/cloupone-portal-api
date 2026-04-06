@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 import * as authService from '../services/auth.service';
-import * as fileService from '../services/file.service';
 import * as loginHistoryService from '../services/login-history.service';
 import { getSetting } from '../services/platform-settings.service';
 import { getEmailProvider } from '../providers/email';
@@ -108,54 +107,6 @@ const changePassword: RequestHandler = async (req, res, next) => {
     const parsed = changePasswordSchema.parse(req.body);
     await authService.changePassword(req.userId!, parsed.currentPassword, parsed.newPassword);
     res.json({ message: 'Password changed successfully' });
-  } catch (err) {
-    next(err);
-  }
-};
-
-const uploadAvatar: RequestHandler = async (req, res, next) => {
-  try {
-    if (!req.file) {
-      throw new AppError('Nenhum arquivo enviado.', 400);
-    }
-
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, req.userId!),
-    });
-
-    // Delete old avatar if exists
-    if (user?.avatarFileId) {
-      await fileService.deleteFile(user.avatarFileId);
-    }
-
-    const fileRecord = await fileService.uploadFile(req.file, req.userId!);
-
-    await db.update(users)
-      .set({ avatarFileId: fileRecord.id, updatedAt: new Date() })
-      .where(eq(users.id, req.userId!));
-
-    const updatedUser = await authService.getMe(req.userId!);
-    res.json({ user: updatedUser, avatarUrl: `/uploads/download/${fileRecord.id}` });
-  } catch (err) {
-    next(err);
-  }
-};
-
-const removeAvatar: RequestHandler = async (req, res, next) => {
-  try {
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, req.userId!),
-    });
-
-    if (user?.avatarFileId) {
-      await fileService.deleteFile(user.avatarFileId);
-      await db.update(users)
-        .set({ avatarFileId: null, updatedAt: new Date() })
-        .where(eq(users.id, req.userId!));
-    }
-
-    const updatedUser = await authService.getMe(req.userId!);
-    res.json({ user: updatedUser });
   } catch (err) {
     next(err);
   }
@@ -271,8 +222,6 @@ export const authController = {
   getMe,
   updateMe,
   changePassword,
-  uploadAvatar,
-  removeAvatar,
   getMyLoginHistory,
   register,
   forceChangePassword,

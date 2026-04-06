@@ -3,8 +3,6 @@ import { authSensitiveRateLimit, authGeneralRateLimit, authenticatedRateLimit } 
 import { auth } from '../middlewares/auth';
 import { authController } from '../controllers/auth.controller';
 import { passwordResetController } from '../controllers/password-reset.controller';
-import { upload } from '../middlewares/upload';
-
 const router = Router();
 
 router.post('/login', authSensitiveRateLimit, authController.login);
@@ -20,10 +18,6 @@ router.post('/reset-password', authSensitiveRateLimit, passwordResetController.r
 router.get('/me', auth, authenticatedRateLimit, authController.getMe);
 router.patch('/me', auth, authenticatedRateLimit, authController.updateMe);
 router.patch('/me/password', auth, authSensitiveRateLimit, authController.changePassword);
-
-// Avatar
-router.patch('/me/avatar', auth, authenticatedRateLimit, upload.single('file'), authController.uploadAvatar);
-router.delete('/me/avatar', auth, authenticatedRateLimit, authController.removeAvatar);
 
 // Login history
 router.get('/me/login-history', auth, authenticatedRateLimit, authController.getMyLoginHistory);

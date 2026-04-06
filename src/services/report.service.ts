@@ -968,12 +968,9 @@ interface EnhancedClientEntry {
 interface TicketStatusSummary {
   open: number;
   in_analysis: number;
-  in_progress: number;
-  in_review: number;
-  resolved: number;
-  closed: number;
-  reopened: number;
-  cancelled: number;
+  awaiting_customer: number;
+  awaiting_third_party: number;
+  finished: number;
 }
 
 interface TicketTypeSummary {
@@ -1120,8 +1117,7 @@ export async function getEnhancedClientReportData(
 
   // Ticket status and type summaries
   const ticketStatusSummary: TicketStatusSummary = {
-    open: 0, in_analysis: 0, in_progress: 0, in_review: 0,
-    resolved: 0, closed: 0, reopened: 0, cancelled: 0,
+    open: 0, in_analysis: 0, awaiting_customer: 0, awaiting_third_party: 0, finished: 0,
   };
   const ticketTypeSummary: TicketTypeSummary = { bug: 0, improvement: 0, initiative: 0 };
   let totalTickets = 0;
@@ -1281,7 +1277,7 @@ export async function generateEnhancedClientPdf(
   content.push(
     { text: 'Resumo de Tickets', style: 'sectionTitle' },
     {
-      text: `Total: ${data.totalTickets} | Abertos: ${ts.open} | Em analise: ${ts.in_analysis} | Em andamento: ${ts.in_progress} | Em revisao: ${ts.in_review} | Resolvidos: ${ts.resolved} | Fechados: ${ts.closed} | Reabertos: ${ts.reopened} | Cancelados: ${ts.cancelled}`,
+      text: `Total: ${data.totalTickets} | Abertos: ${ts.open} | Em analise: ${ts.in_analysis} | Aguardando cliente: ${ts.awaiting_customer} | Aguardando terceiro: ${ts.awaiting_third_party} | Finalizados: ${ts.finished}`,
       fontSize: 8,
       margin: [0, 0, 0, 3] as [number, number, number, number],
     },

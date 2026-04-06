@@ -14,12 +14,9 @@ interface TicketStatusChangedEmailParams {
 const STATUS_LABELS: Record<string, string> = {
   open: 'Aberto',
   in_analysis: 'Em Análise',
-  in_progress: 'Em Andamento',
-  in_review: 'Em Revisão',
-  resolved: 'Resolvido',
-  closed: 'Fechado',
-  reopened: 'Reaberto',
-  cancelled: 'Cancelado',
+  awaiting_customer: 'Aguardando Retorno do Cliente',
+  awaiting_third_party: 'Aguardando Terceiro',
+  finished: 'Finalizado',
 };
 
 export function buildTicketStatusChangedEmail({ recipientName, ticketCode, ticketTitle, oldStatus, newStatus, changedByName, ticketUrl }: TicketStatusChangedEmailParams): { subject: string; html: string; text: string } {

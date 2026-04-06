@@ -17,6 +17,7 @@ const upsertEntrySchema = z.object({
   endTime: z.string().regex(timeRegex, 'Horário de fim inválido (HH:MM)'),
   description: z.string().max(500, V.max('Descrição', 500)).optional(),
   ticketId: z.string().uuid(V.uuidInvalid('Ticket')).nullable().optional(),
+  subphaseId: z.string().uuid(V.uuidInvalid('Subfase')).nullable().optional(),
 });
 
 const idSchema = z.string().uuid();
@@ -54,6 +55,7 @@ const upsert: RequestHandler = async (req, res, next) => {
       endTime: data.endTime,
       description: data.description,
       ticketId: data.ticketId,
+      subphaseId: data.subphaseId,
     });
     res.status(200).json(result);
   } catch (err) {

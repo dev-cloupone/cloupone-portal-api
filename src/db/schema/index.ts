@@ -13,3 +13,6 @@ export { timeEntries } from './time-entries';
 export { monthlyTimesheetStatusEnum, monthlyTimesheets } from './monthly-timesheets';
 export { ticketTypeEnum, ticketPriorityEnum, ticketStatusEnum, tickets, ticketComments, ticketHistory, ticketAttachments } from './tickets';
 export { expenseStatusEnum, expenseCategories, expenseTemplates, expenses, expenseComments } from './expenses';
+export { projectPhases } from './project-phases';
+export { subphaseStatusEnum, projectSubphases } from './project-subphases';
+export { subphaseConsultants } from './subphase-consultants';

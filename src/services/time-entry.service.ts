@@ -1,6 +1,6 @@
 import { eq, and, between, count as drizzleCount, desc, asc, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets } from '../db/schema';
+import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, subphaseConsultants } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -11,6 +11,10 @@ const MSG = {
   NOT_OWNER: 'Você não pode editar apontamentos de outro consultor.',
   MONTH_CLOSED: 'Mês aprovado. Não é possível editar apontamentos.',
   NOT_ALLOCATED: 'Consultor não está alocado neste projeto.',
+  SUBPHASE_REQUIRED: 'Subfase é obrigatória para novos apontamentos.',
+  SUBPHASE_NOT_FOUND: 'Subfase não encontrada.',
+  SUBPHASE_NOT_IN_PROGRESS: 'Subfase não está em andamento.',
+  NOT_LINKED_TO_SUBPHASE: 'Consultor não está vinculado a esta subfase.',
 } as const;
 
 // --- Time utility functions ---
@@ -147,6 +151,7 @@ export async function getMonthEntries(userId: string, date: string) {
       ticketId: timeEntries.ticketId,
       ticketCode: tickets.code,
       ticketTitle: tickets.title,
+      subphaseId: timeEntries.subphaseId,
     })
     .from(timeEntries)
     .leftJoin(projects, eq(timeEntries.projectId, projects.id))
@@ -237,6 +242,7 @@ interface UpsertEntryInput {
   endTime: string;
   description?: string;
   ticketId?: string | null;
+  subphaseId?: string | null;
 }
 
 export async function upsertTimeEntry(data: UpsertEntryInput) {
@@ -277,6 +283,24 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     }
   }
 
+  // 5.5 Validate subphase (obrigatório para novos apontamentos)
+  if (!data.id && !data.subphaseId) {
+    throw new AppError(MSG.SUBPHASE_REQUIRED, 400);
+  }
+
+  if (data.subphaseId) {
+    const [subphase] = await db.select({ id: projectSubphases.id, status: projectSubphases.status })
+      .from(projectSubphases).where(eq(projectSubphases.id, data.subphaseId)).limit(1);
+    if (!subphase) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
+    if (subphase.status !== 'in_progress') throw new AppError(MSG.SUBPHASE_NOT_IN_PROGRESS, 400);
+
+    const [link] = await db.select({ id: subphaseConsultants.id })
+      .from(subphaseConsultants)
+      .where(and(eq(subphaseConsultants.subphaseId, data.subphaseId), eq(subphaseConsultants.userId, data.userId)))
+      .limit(1);
+    if (!link) throw new AppError(MSG.NOT_LINKED_TO_SUBPHASE, 400);
+  }
+
   // 6. Calculate hours
   const hours = calculateHours(startTime, endTime);
 
@@ -303,6 +327,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
       hours,
       description: data.description ?? null,
       ticketId: data.ticketId ?? null,
+      subphaseId: data.subphaseId ?? null,
       updatedAt: new Date(),
     }).where(eq(timeEntries.id, data.id)).returning();
 
@@ -327,6 +352,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     hours,
     description: data.description ?? null,
     ticketId: data.ticketId ?? null,
+    subphaseId: data.subphaseId ?? null,
   }).returning();
 
   return created;
@@ -343,6 +369,129 @@ export async function deleteTimeEntry(id: string, userId: string) {
   if (!isOpen) throw new AppError(MSG.MONTH_CLOSED, 400);
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
+}
+
+export async function listSubphaseTimeEntries(
+  subphaseId: string,
+  params: PaginationParams & { userId?: string; from?: string; to?: string },
+) {
+  const { page, limit, userId, from, to } = params;
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(timeEntries.subphaseId, subphaseId)];
+  if (userId) conditions.push(eq(timeEntries.userId, userId));
+  if (from && to) conditions.push(between(timeEntries.date, from, to));
+  else if (from) conditions.push(sql`${timeEntries.date} >= ${from}`);
+  else if (to) conditions.push(sql`${timeEntries.date} <= ${to}`);
+
+  const where = and(...conditions);
+
+  const [data, [{ total }], [summary]] = await Promise.all([
+    db.select({
+      id: timeEntries.id,
+      date: timeEntries.date,
+      startTime: timeEntries.startTime,
+      endTime: timeEntries.endTime,
+      hours: timeEntries.hours,
+      userName: users.name,
+      description: timeEntries.description,
+    })
+      .from(timeEntries)
+      .leftJoin(users, eq(timeEntries.userId, users.id))
+      .where(where)
+      .orderBy(desc(timeEntries.date), asc(timeEntries.startTime))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: drizzleCount() }).from(timeEntries).where(where),
+    db.select({
+      actualHours: sql<string>`coalesce(sum(${timeEntries.hours}), 0)`,
+    }).from(timeEntries).where(and(eq(timeEntries.subphaseId, subphaseId))),
+  ]);
+
+  // Get estimated hours from subphase
+  const [subphase] = await db.select({ estimatedHours: projectSubphases.estimatedHours })
+    .from(projectSubphases).where(eq(projectSubphases.id, subphaseId)).limit(1);
+
+  const estimatedHours = Number(subphase?.estimatedHours ?? 0);
+  const actualHours = Number(summary.actualHours);
+
+  return {
+    summary: {
+      estimatedHours,
+      actualHours,
+      percentComplete: estimatedHours > 0 ? Math.round((actualHours / estimatedHours) * 100) : 0,
+    },
+    data,
+    meta: buildMeta(total, { page, limit }),
+  };
+}
+
+export async function listPhaseTimeEntries(
+  phaseId: string,
+  params: PaginationParams & { userId?: string; subphaseId?: string; from?: string; to?: string },
+) {
+  const { page, limit, userId, subphaseId, from, to } = params;
+  const offset = (page - 1) * limit;
+
+  // Get all subphase IDs for this phase
+  const phaseSubphases = await db.select({ id: projectSubphases.id, estimatedHours: projectSubphases.estimatedHours })
+    .from(projectSubphases)
+    .where(and(eq(projectSubphases.phaseId, phaseId), eq(projectSubphases.isActive, true)));
+
+  const subphaseIds = phaseSubphases.map(s => s.id);
+  if (subphaseIds.length === 0) {
+    return {
+      summary: { estimatedHours: 0, actualHours: 0, percentComplete: 0 },
+      data: [],
+      meta: buildMeta(0, { page, limit }),
+    };
+  }
+
+  const conditions = [sql`${timeEntries.subphaseId} in ${subphaseIds}`];
+  if (userId) conditions.push(eq(timeEntries.userId, userId));
+  if (subphaseId) conditions.push(eq(timeEntries.subphaseId, subphaseId));
+  if (from && to) conditions.push(between(timeEntries.date, from, to));
+  else if (from) conditions.push(sql`${timeEntries.date} >= ${from}`);
+  else if (to) conditions.push(sql`${timeEntries.date} <= ${to}`);
+
+  const where = and(...conditions);
+
+  const [data, [{ total }], [summary]] = await Promise.all([
+    db.select({
+      id: timeEntries.id,
+      date: timeEntries.date,
+      startTime: timeEntries.startTime,
+      endTime: timeEntries.endTime,
+      hours: timeEntries.hours,
+      userName: users.name,
+      description: timeEntries.description,
+      subphaseName: projectSubphases.name,
+    })
+      .from(timeEntries)
+      .leftJoin(users, eq(timeEntries.userId, users.id))
+      .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
+      .where(where)
+      .orderBy(desc(timeEntries.date), asc(timeEntries.startTime))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: drizzleCount() }).from(timeEntries).where(where),
+    db.select({
+      actualHours: sql<string>`coalesce(sum(${timeEntries.hours}), 0)`,
+    }).from(timeEntries).where(and(sql`${timeEntries.subphaseId} in ${subphaseIds}`)),
+  ]);
+
+  const estimatedHours = phaseSubphases.reduce((sum, s) => sum + Number(s.estimatedHours ?? 0), 0);
+  const actualHours = Number(summary.actualHours);
+
+  return {
+    summary: {
+      estimatedHours,
+      actualHours,
+      percentComplete: estimatedHours > 0 ? Math.round((actualHours / estimatedHours) * 100) : 0,
+    },
+    data,
+    meta: buildMeta(total, { page, limit }),
+  };
 }
 
 export async function listTimeEntries(params: PaginationParams & {
@@ -383,6 +532,7 @@ export async function listTimeEntries(params: PaginationParams & {
         ticketId: timeEntries.ticketId,
         ticketCode: tickets.code,
         ticketTitle: tickets.title,
+        subphaseId: timeEntries.subphaseId,
       })
       .from(timeEntries)
       .leftJoin(users, eq(timeEntries.userId, users.id))

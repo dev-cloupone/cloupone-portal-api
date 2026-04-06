@@ -3,6 +3,7 @@ import { users } from './users';
 import { projects } from './projects';
 import { activityCategories } from './activity-categories';
 import { tickets } from './tickets';
+import { projectSubphases } from './project-subphases';
 
 export const timeEntries = pgTable('time_entries', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -15,6 +16,7 @@ export const timeEntries = pgTable('time_entries', {
   hours: decimal('hours', { precision: 4, scale: 2 }).notNull(),
   description: text('description'),
   ticketId: uuid('ticket_id').references(() => tickets.id, { onDelete: 'set null' }),
+  subphaseId: uuid('subphase_id').references(() => projectSubphases.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [

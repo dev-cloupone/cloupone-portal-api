@@ -21,7 +21,7 @@ const createTicketSchema = z.object({
 });
 
 const updateTicketSchema = z.object({
-  status: z.enum(['open', 'in_analysis', 'in_progress', 'in_review', 'resolved', 'closed', 'reopened', 'cancelled']).optional(),
+  status: z.enum(['open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   assignedTo: z.string().uuid().nullable().optional(),
   isVisibleToClient: z.boolean().optional(),

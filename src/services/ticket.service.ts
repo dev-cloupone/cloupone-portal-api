@@ -18,24 +18,18 @@ const MSG = {
   ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
 } as const;
 
-const STATUS_TRANSITIONS: Record<string, string[]> = {
-  open: ['in_analysis', 'in_progress', 'cancelled'],
-  in_analysis: ['in_progress', 'cancelled'],
-  in_progress: ['in_review', 'resolved', 'cancelled'],
-  in_review: ['in_progress', 'resolved', 'cancelled'],
-  resolved: ['closed', 'reopened'],
-  closed: ['reopened'],
-  reopened: ['in_analysis', 'in_progress', 'cancelled'],
-};
+const ALL_STATUSES = ['open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished'];
+
+const STATUS_TRANSITIONS: Record<string, string[]> = Object.fromEntries(
+  ALL_STATUSES.map((s) => [s, ALL_STATUSES.filter((t) => t !== s)])
+);
 
 const STATUS_ROLE_PERMISSIONS: Record<string, string[]> = {
   in_analysis: ['consultor', 'gestor', 'super_admin'],
-  in_progress: ['consultor', 'gestor', 'super_admin'],
-  in_review: ['consultor', 'gestor', 'super_admin'],
-  resolved: ['consultor', 'gestor', 'super_admin'],
-  closed: ['user', 'gestor', 'super_admin'],
-  reopened: ['user', 'gestor', 'super_admin'],
-  cancelled: ['gestor', 'super_admin'],
+  awaiting_customer: ['consultor', 'gestor', 'super_admin'],
+  awaiting_third_party: ['consultor', 'gestor', 'super_admin'],
+  finished: ['consultor', 'gestor', 'super_admin'],
+  open: ['user', 'gestor', 'super_admin'],
 };
 
 // --- Helpers ---
@@ -281,7 +275,7 @@ export async function listTickets(params: {
   // Optional filters
   if (params.projectId) conditions.push(eq(tickets.projectId, params.projectId));
   if (params.status) {
-    const statuses = params.status.split(',') as Array<'open' | 'in_analysis' | 'in_progress' | 'in_review' | 'resolved' | 'closed' | 'reopened' | 'cancelled'>;
+    const statuses = params.status.split(',') as Array<'open' | 'in_analysis' | 'awaiting_customer' | 'awaiting_third_party' | 'finished'>;
     if (statuses.length === 1) {
       conditions.push(eq(tickets.status, statuses[0]));
     } else {
@@ -402,9 +396,11 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     updateData.status = data.status;
     await recordHistory(ticketId, userId, 'status', ticket.status, data.status);
 
-    if (data.status === 'resolved') updateData.resolvedAt = new Date();
-    if (data.status === 'closed') updateData.closedAt = new Date();
-    if (data.status === 'reopened') {
+    if (data.status === 'finished') {
+      updateData.resolvedAt = new Date();
+      updateData.closedAt = new Date();
+    }
+    if (data.status === 'open' && ticket.status === 'finished') {
       updateData.resolvedAt = null;
       updateData.closedAt = null;
     }
@@ -419,7 +415,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
 
   // Assigned to
   if (data.assignedTo !== undefined && data.assignedTo !== ticket.assignedTo) {
-    if (userRole !== 'gestor' && userRole !== 'super_admin') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole !== 'gestor' && userRole !== 'super_admin' && userRole !== 'consultor') throw new AppError(MSG.NO_PERMISSION, 403);
     updateData.assignedTo = data.assignedTo;
     const oldName = ticket.assignedToName || 'Nenhum';
     let newName = 'Nenhum';

@@ -6,8 +6,7 @@ import { files } from './files';
 export const ticketTypeEnum = pgEnum('ticket_type', ['bug', 'improvement', 'initiative']);
 export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'critical']);
 export const ticketStatusEnum = pgEnum('ticket_status', [
-  'open', 'in_analysis', 'in_progress', 'in_review',
-  'resolved', 'closed', 'reopened', 'cancelled',
+  'open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished',
 ]);
 
 export const tickets = pgTable('tickets', {
