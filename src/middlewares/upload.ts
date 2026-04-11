@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { getS3Client, isR2Configured } from '../config/s3';
 import { env } from '../config/env';
+import { isValidUploadType } from '../constants/upload-types';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB fallback max
 
@@ -13,10 +14,14 @@ function buildStorage(): multer.StorageEngine {
     return multerS3({
       s3,
       bucket: env.R2_BUCKET_NAME!,
-      key: (_req, file, cb) => {
+      key: (req, file, cb) => {
+        const type = (req as unknown as { params?: { type?: string } }).params?.type;
+        if (!type || !isValidUploadType(type)) {
+          cb(new Error(`Tipo de upload inválido: ${type}`));
+          return;
+        }
         const id = crypto.randomUUID();
-        const ext = path.extname(file.originalname);
-        cb(null, `uploads/${id}/${file.originalname}`);
+        cb(null, `uploads/${type}/${id}/${file.originalname}`);
       },
       contentType: multerS3.AUTO_CONTENT_TYPE,
     });

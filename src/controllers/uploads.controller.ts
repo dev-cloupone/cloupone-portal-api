@@ -1,9 +1,13 @@
 import type { RequestHandler } from 'express';
 import * as fileService from '../services/file.service';
 import { AppError } from '../utils/app-error';
+import { isValidUploadType } from '../constants/upload-types';
 
-const uploadFile: RequestHandler = async (req, res, next) => {
+const uploadFile: RequestHandler<{ type: string }> = async (req, res, next) => {
   try {
+    if (!isValidUploadType(req.params.type)) {
+      throw new AppError('Tipo de upload inválido.', 400);
+    }
     if (!req.file) {
       throw new AppError('Nenhum arquivo enviado.', 400);
     }
