@@ -32,6 +32,20 @@ const STATUS_ROLE_PERMISSIONS: Record<string, string[]> = {
   open: ['user', 'gestor', 'super_admin'],
 };
 
+// Regras complementares para o role 'user' (cliente), que dependem do status de origem.
+function canClientTransition(fromStatus: string, toStatus: string): boolean {
+  // Cliente pode encerrar o ticket a qualquer momento.
+  if (toStatus === 'finished') return true;
+  // Cliente pode devolver para análise apenas quando estiver aguardando retorno dele.
+  if (toStatus === 'in_analysis' && fromStatus === 'awaiting_customer') return true;
+  return false;
+}
+
+function canTransition(fromStatus: string, toStatus: string, userRole: string): boolean {
+  if (userRole === 'user' && canClientTransition(fromStatus, toStatus)) return true;
+  return (STATUS_ROLE_PERMISSIONS[toStatus] || []).includes(userRole);
+}
+
 // --- Helpers ---
 
 async function validateProjectAccess(projectId: string, userId: string, userRole: string, userClientId?: string): Promise<void> {
@@ -389,8 +403,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!allowed || !allowed.includes(data.status)) {
       throw new AppError(MSG.INVALID_TRANSITION, 400);
     }
-    const roleAllowed = STATUS_ROLE_PERMISSIONS[data.status];
-    if (!roleAllowed || !roleAllowed.includes(userRole)) {
+    if (!canTransition(ticket.status, data.status, userRole)) {
       throw new AppError(MSG.NO_PERMISSION, 403);
     }
     updateData.status = data.status;
