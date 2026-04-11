@@ -29,7 +29,7 @@ const STATUS_ROLE_PERMISSIONS: Record<string, string[]> = {
   awaiting_customer: ['consultor', 'gestor', 'super_admin'],
   awaiting_third_party: ['consultor', 'gestor', 'super_admin'],
   finished: ['consultor', 'gestor', 'super_admin'],
-  open: ['user', 'gestor', 'super_admin'],
+  open: ['gestor', 'super_admin'],
 };
 
 // Regras complementares para o role 'user' (cliente), que dependem do status de origem.
