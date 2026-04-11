@@ -9,7 +9,7 @@ const idSchema = z.string().uuid();
 
 const createTicketSchema = z.object({
   projectId: z.string().uuid(V.uuidInvalid('Projeto')),
-  type: z.enum(['bug', 'improvement', 'initiative'], { message: V.enumInvalid('Tipo') }),
+  type: z.enum(['system_error', 'question', 'improvement', 'security'], { message: V.enumInvalid('Tipo') }),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   title: z.string().min(3, V.min('Titulo', 3)).max(255, V.max('Titulo', 255)),
   description: z.string().optional(),
@@ -34,7 +34,7 @@ const updateTicketSchema = z.object({
 const listTicketsSchema = z.object({
   projectId: z.string().uuid().optional(),
   status: z.string().optional(),
-  type: z.enum(['bug', 'improvement', 'initiative']).optional(),
+  type: z.enum(['system_error', 'question', 'improvement', 'security']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   assignedTo: z.string().uuid().optional(),
   createdBy: z.string().uuid().optional(),

@@ -11,9 +11,10 @@ interface TicketCreatedEmailParams {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  bug: 'Bug',
-  improvement: 'Melhoria',
-  initiative: 'Iniciativa',
+  system_error: 'Erro de sistema',
+  question: 'Dúvida',
+  improvement: 'Solicitação de melhoria',
+  security: 'Segurança/Acesso',
 };
 
 export function buildTicketCreatedEmail({ projectName, ticketCode, ticketTitle, ticketType, createdByName, ticketUrl }: TicketCreatedEmailParams): { subject: string; html: string; text: string } {

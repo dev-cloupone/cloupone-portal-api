@@ -173,7 +173,7 @@ export async function createTicket(data: {
     projectId: data.projectId,
     createdBy: data.createdBy,
     assignedTo: data.assignedTo ?? null,
-    type: data.type as 'bug' | 'improvement' | 'initiative',
+    type: data.type as 'system_error' | 'question' | 'improvement' | 'security',
     priority: (data.priority as 'low' | 'medium' | 'high' | 'critical') ?? 'medium',
     status: 'open',
     title: data.title,
@@ -305,7 +305,7 @@ export async function listTickets(params: {
       conditions.push(inArray(tickets.status, statuses));
     }
   }
-  if (params.type) conditions.push(eq(tickets.type, params.type as 'bug' | 'improvement' | 'initiative'));
+  if (params.type) conditions.push(eq(tickets.type, params.type as 'system_error' | 'question' | 'improvement' | 'security'));
   if (params.priority) conditions.push(eq(tickets.priority, params.priority as 'low' | 'medium' | 'high' | 'critical'));
   if (params.assignedTo) conditions.push(eq(tickets.assignedTo, params.assignedTo));
   if (params.createdBy) conditions.push(eq(tickets.createdBy, params.createdBy));
