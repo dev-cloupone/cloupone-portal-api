@@ -54,7 +54,7 @@ export const ticketHistory = pgTable('ticket_history', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
   field: varchar('field', { length: 50 }).notNull(),
   oldValue: varchar('old_value', { length: 500 }),
-  newValue: varchar('new_value', { length: 500 }).notNull(),
+  newValue: varchar('new_value', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
   index('ticket_history_ticket_created_idx').on(table.ticketId, table.createdAt),

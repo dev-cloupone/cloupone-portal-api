@@ -16,6 +16,9 @@ const MSG = {
   COMMENT_EMPTY: 'O conteúdo do comentário é obrigatório.',
   FILE_NOT_FOUND: 'Arquivo não encontrado.',
   ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
+  FINISHED_NOT_EDITABLE: 'Ticket finalizado não pode ser alterado.',
+  CLIENT_CANNOT_REOPEN: 'Cliente não pode reabrir ticket finalizado.',
+  CLIENT_NO_TIME_ACCESS: 'Cliente não tem acesso às horas do ticket.',
 } as const;
 
 const ALL_STATUSES = ['open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished'];
@@ -96,8 +99,14 @@ async function generateTicketCode(projectId: string): Promise<string> {
   return `${prefix}-${String(updated.ticketSequence).padStart(3, '0')}`;
 }
 
-async function recordHistory(ticketId: string, userId: string, field: string, oldValue: string | null, newValue: string) {
+async function recordHistory(ticketId: string, userId: string, field: string, oldValue: string | null, newValue: string | null) {
   await db.insert(ticketHistory).values({ ticketId, userId, field, oldValue, newValue });
+}
+
+function assertTicketEditable(ticket: { status: string }) {
+  if (ticket.status === 'finished') {
+    throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+  }
 }
 
 function buildTicketSelect() {
@@ -395,6 +404,18 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
   }
 
+  // Finished tickets are locked except for status changes by internal roles
+  if (ticket.status === 'finished') {
+    const keys = Object.keys(data);
+    const onlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
+    if (!onlyStatusUpdate) {
+      throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+    }
+    if (userRole === 'user') {
+      throw new AppError(MSG.CLIENT_CANNOT_REOPEN, 403);
+    }
+  }
+
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   // Status transition
@@ -455,7 +476,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   // Description
   if (data.description !== undefined && data.description !== ticket.description) {
     updateData.description = data.description;
-    await recordHistory(ticketId, userId, 'description', ticket.description || '', data.description);
+    await recordHistory(ticketId, userId, 'description', null, null);
   }
 
   // Due date
@@ -515,6 +536,8 @@ export async function addComment(data: {
       .limit(1);
     if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
   }
+
+  assertTicketEditable(ticket);
 
   const isInternal = data.userRole === 'user' ? false : (data.isInternal ?? false);
 
@@ -593,7 +616,8 @@ export async function addAttachment(data: {
   userRole: string;
   userClientId?: string;
 }) {
-  await getTicketById(data.ticketId, data.uploadedBy, data.userRole, data.userClientId);
+  const ticket = await getTicketById(data.ticketId, data.uploadedBy, data.userRole, data.userClientId);
+  assertTicketEditable(ticket);
 
   const [file] = await db.select({ id: files.id }).from(files).where(eq(files.id, data.fileId)).limit(1);
   if (!file) throw new AppError(MSG.FILE_NOT_FOUND, 404);
@@ -617,6 +641,10 @@ export async function removeAttachment(ticketId: string, attachmentId: string, u
     .limit(1);
 
   if (!attachment) throw new AppError(MSG.ATTACHMENT_NOT_FOUND, 404);
+
+  const [ticketRow] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticketId)).limit(1);
+  if (!ticketRow) throw new AppError(MSG.NOT_FOUND, 404);
+  assertTicketEditable(ticketRow);
 
   if (attachment.uploadedBy !== userId && userRole !== 'gestor' && userRole !== 'super_admin') {
     throw new AppError(MSG.NO_PERMISSION, 403);
@@ -653,6 +681,9 @@ export async function listAttachments(ticketId: string) {
 // --- Time Entries ---
 
 export async function listTicketTimeEntries(ticketId: string, userId: string, userRole: string, userClientId?: string) {
+  if (userRole === 'user') {
+    throw new AppError(MSG.CLIENT_NO_TIME_ACCESS, 403);
+  }
   await getTicketById(ticketId, userId, userRole, userClientId);
 
   const data = await db
