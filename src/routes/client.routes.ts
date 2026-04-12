@@ -6,12 +6,12 @@ import { clientController } from '../controllers/client.controller';
 
 const router = Router();
 
-router.use(auth, authorize('super_admin'), authenticatedRateLimit);
+router.use(auth, authenticatedRateLimit);
 
-router.get('/', clientController.list);
-router.get('/:id', clientController.getById);
-router.post('/', clientController.create);
-router.patch('/:id', clientController.update);
-router.delete('/:id', clientController.deactivate);
+router.get('/', authorize('super_admin', 'gestor'), clientController.list);
+router.get('/:id', authorize('super_admin', 'gestor'), clientController.getById);
+router.post('/', authorize('super_admin'), clientController.create);
+router.patch('/:id', authorize('super_admin'), clientController.update);
+router.delete('/:id', authorize('super_admin'), clientController.deactivate);
 
 export { router as clientRoutes };
