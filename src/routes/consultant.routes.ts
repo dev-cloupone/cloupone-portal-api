@@ -10,7 +10,7 @@ const router = Router();
 router.get('/:userId/projects', auth, authenticatedRateLimit, consultantController.listProjects);
 
 // All other routes require admin/gestor
-router.use(auth, authorize('super_admin', 'gestor'), authenticatedRateLimit);
+router.use(auth, authorize('super_admin'), authenticatedRateLimit);
 
 router.get('/', consultantController.list);
 router.get('/:userId', consultantController.getByUserId);

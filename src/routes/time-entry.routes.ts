@@ -15,6 +15,6 @@ router.post('/', timeEntryController.upsert);
 router.delete('/:id', timeEntryController.remove);
 
 // General listing (for reports)
-router.get('/', authorize('super_admin', 'gestor'), timeEntryController.list);
+router.get('/', authorize('super_admin'), timeEntryController.list);
 
 export { router as timeEntryRoutes };

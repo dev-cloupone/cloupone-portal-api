@@ -12,8 +12,8 @@ const MSG = {
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   planned: ['in_progress'],
-  in_progress: ['completed'],
-  completed: [],
+  in_progress: ['completed', 'planned'],
+  completed: ['in_progress', 'planned'],
 };
 
 export async function listSubphases(phaseId: string) {

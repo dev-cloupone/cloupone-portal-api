@@ -6,7 +6,7 @@ import { reportController } from '../controllers/report.controller';
 
 const router = Router();
 
-router.use(auth, authorize('super_admin', 'gestor'), authenticatedRateLimit);
+router.use(auth, authorize('super_admin'), authenticatedRateLimit);
 
 router.get('/client/:clientId', reportController.clientData);
 router.get('/client/:clientId/pdf', reportController.clientPdf);

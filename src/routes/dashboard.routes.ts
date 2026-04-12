@@ -8,7 +8,7 @@ const router = Router();
 
 router.use(auth, authenticatedRateLimit);
 
-router.get('/manager', authorize('super_admin', 'gestor'), dashboardController.manager);
+router.get('/manager', authorize('super_admin'), dashboardController.manager);
 router.get('/consultant', authorize('super_admin', 'gestor', 'consultor'), dashboardController.consultant);
 
 export { router as dashboardRoutes };

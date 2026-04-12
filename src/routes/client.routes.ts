@@ -6,7 +6,7 @@ import { clientController } from '../controllers/client.controller';
 
 const router = Router();
 
-router.use(auth, authorize('super_admin', 'gestor'), authenticatedRateLimit);
+router.use(auth, authorize('super_admin'), authenticatedRateLimit);
 
 router.get('/', clientController.list);
 router.get('/:id', clientController.getById);
