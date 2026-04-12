@@ -3,7 +3,7 @@ import { users } from './users';
 import { projects } from './projects';
 import { files } from './files';
 
-export const ticketTypeEnum = pgEnum('ticket_type', ['bug', 'improvement', 'initiative']);
+export const ticketTypeEnum = pgEnum('ticket_type', ['system_error', 'question', 'improvement', 'security']);
 export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'critical']);
 export const ticketStatusEnum = pgEnum('ticket_status', [
   'open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished',
@@ -54,7 +54,7 @@ export const ticketHistory = pgTable('ticket_history', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
   field: varchar('field', { length: 50 }).notNull(),
   oldValue: varchar('old_value', { length: 500 }),
-  newValue: varchar('new_value', { length: 500 }).notNull(),
+  newValue: varchar('new_value', { length: 500 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
   index('ticket_history_ticket_created_idx').on(table.ticketId, table.createdAt),

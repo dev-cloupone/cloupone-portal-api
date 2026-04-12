@@ -71,6 +71,20 @@
       "when": 1775400000000,
       "tag": "0009_ticket_status_simplify",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775938958651,
+      "tag": "0010_charming_grey_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776200000000,
+      "tag": "0011_ticket_type_redesign",
+      "breakpoints": true
     }
   ]
 }

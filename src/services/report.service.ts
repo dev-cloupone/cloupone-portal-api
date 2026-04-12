@@ -974,9 +974,10 @@ interface TicketStatusSummary {
 }
 
 interface TicketTypeSummary {
-  bug: number;
+  system_error: number;
+  question: number;
   improvement: number;
-  initiative: number;
+  security: number;
 }
 
 interface EnhancedClientReportData {
@@ -1119,7 +1120,7 @@ export async function getEnhancedClientReportData(
   const ticketStatusSummary: TicketStatusSummary = {
     open: 0, in_analysis: 0, awaiting_customer: 0, awaiting_third_party: 0, finished: 0,
   };
-  const ticketTypeSummary: TicketTypeSummary = { bug: 0, improvement: 0, initiative: 0 };
+  const ticketTypeSummary: TicketTypeSummary = { system_error: 0, question: 0, improvement: 0, security: 0 };
   let totalTickets = 0;
 
   for (const t of ticketRows) {
@@ -1282,7 +1283,7 @@ export async function generateEnhancedClientPdf(
       margin: [0, 0, 0, 3] as [number, number, number, number],
     },
     {
-      text: `Bugs: ${tt.bug} | Melhorias: ${tt.improvement} | Iniciativas: ${tt.initiative}`,
+      text: `Erros de sistema: ${tt.system_error} | Duvidas: ${tt.question} | Melhorias: ${tt.improvement} | Seguranca/Acesso: ${tt.security}`,
       fontSize: 8,
       margin: [0, 0, 0, 5] as [number, number, number, number],
     },

@@ -16,6 +16,9 @@ const MSG = {
   COMMENT_EMPTY: 'O conteúdo do comentário é obrigatório.',
   FILE_NOT_FOUND: 'Arquivo não encontrado.',
   ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
+  FINISHED_NOT_EDITABLE: 'Ticket finalizado não pode ser alterado.',
+  CLIENT_CANNOT_REOPEN: 'Cliente não pode reabrir ticket finalizado.',
+  CLIENT_NO_TIME_ACCESS: 'Cliente não tem acesso às horas do ticket.',
 } as const;
 
 const ALL_STATUSES = ['open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished'];
@@ -29,8 +32,22 @@ const STATUS_ROLE_PERMISSIONS: Record<string, string[]> = {
   awaiting_customer: ['consultor', 'gestor', 'super_admin'],
   awaiting_third_party: ['consultor', 'gestor', 'super_admin'],
   finished: ['consultor', 'gestor', 'super_admin'],
-  open: ['user', 'gestor', 'super_admin'],
+  open: ['gestor', 'super_admin'],
 };
+
+// Regras complementares para o role 'user' (cliente), que dependem do status de origem.
+function canClientTransition(fromStatus: string, toStatus: string): boolean {
+  // Cliente pode encerrar o ticket a qualquer momento.
+  if (toStatus === 'finished') return true;
+  // Cliente pode devolver para análise apenas quando estiver aguardando retorno dele.
+  if (toStatus === 'in_analysis' && fromStatus === 'awaiting_customer') return true;
+  return false;
+}
+
+function canTransition(fromStatus: string, toStatus: string, userRole: string): boolean {
+  if (userRole === 'user' && canClientTransition(fromStatus, toStatus)) return true;
+  return (STATUS_ROLE_PERMISSIONS[toStatus] || []).includes(userRole);
+}
 
 // --- Helpers ---
 
@@ -82,8 +99,14 @@ async function generateTicketCode(projectId: string): Promise<string> {
   return `${prefix}-${String(updated.ticketSequence).padStart(3, '0')}`;
 }
 
-async function recordHistory(ticketId: string, userId: string, field: string, oldValue: string | null, newValue: string) {
+async function recordHistory(ticketId: string, userId: string, field: string, oldValue: string | null, newValue: string | null) {
   await db.insert(ticketHistory).values({ ticketId, userId, field, oldValue, newValue });
+}
+
+function assertTicketEditable(ticket: { status: string }) {
+  if (ticket.status === 'finished') {
+    throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+  }
 }
 
 function buildTicketSelect() {
@@ -150,7 +173,7 @@ export async function createTicket(data: {
     projectId: data.projectId,
     createdBy: data.createdBy,
     assignedTo: data.assignedTo ?? null,
-    type: data.type as 'bug' | 'improvement' | 'initiative',
+    type: data.type as 'system_error' | 'question' | 'improvement' | 'security',
     priority: (data.priority as 'low' | 'medium' | 'high' | 'critical') ?? 'medium',
     status: 'open',
     title: data.title,
@@ -282,7 +305,7 @@ export async function listTickets(params: {
       conditions.push(inArray(tickets.status, statuses));
     }
   }
-  if (params.type) conditions.push(eq(tickets.type, params.type as 'bug' | 'improvement' | 'initiative'));
+  if (params.type) conditions.push(eq(tickets.type, params.type as 'system_error' | 'question' | 'improvement' | 'security'));
   if (params.priority) conditions.push(eq(tickets.priority, params.priority as 'low' | 'medium' | 'high' | 'critical'));
   if (params.assignedTo) conditions.push(eq(tickets.assignedTo, params.assignedTo));
   if (params.createdBy) conditions.push(eq(tickets.createdBy, params.createdBy));
@@ -381,6 +404,18 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
   }
 
+  // Finished tickets are locked except for status changes by internal roles
+  if (ticket.status === 'finished') {
+    const keys = Object.keys(data);
+    const onlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
+    if (!onlyStatusUpdate) {
+      throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+    }
+    if (userRole === 'user') {
+      throw new AppError(MSG.CLIENT_CANNOT_REOPEN, 403);
+    }
+  }
+
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   // Status transition
@@ -389,8 +424,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!allowed || !allowed.includes(data.status)) {
       throw new AppError(MSG.INVALID_TRANSITION, 400);
     }
-    const roleAllowed = STATUS_ROLE_PERMISSIONS[data.status];
-    if (!roleAllowed || !roleAllowed.includes(userRole)) {
+    if (!canTransition(ticket.status, data.status, userRole)) {
       throw new AppError(MSG.NO_PERMISSION, 403);
     }
     updateData.status = data.status;
@@ -442,7 +476,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   // Description
   if (data.description !== undefined && data.description !== ticket.description) {
     updateData.description = data.description;
-    await recordHistory(ticketId, userId, 'description', ticket.description || '', data.description);
+    await recordHistory(ticketId, userId, 'description', null, null);
   }
 
   // Due date
@@ -502,6 +536,8 @@ export async function addComment(data: {
       .limit(1);
     if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
   }
+
+  assertTicketEditable(ticket);
 
   const isInternal = data.userRole === 'user' ? false : (data.isInternal ?? false);
 
@@ -580,7 +616,8 @@ export async function addAttachment(data: {
   userRole: string;
   userClientId?: string;
 }) {
-  await getTicketById(data.ticketId, data.uploadedBy, data.userRole, data.userClientId);
+  const ticket = await getTicketById(data.ticketId, data.uploadedBy, data.userRole, data.userClientId);
+  assertTicketEditable(ticket);
 
   const [file] = await db.select({ id: files.id }).from(files).where(eq(files.id, data.fileId)).limit(1);
   if (!file) throw new AppError(MSG.FILE_NOT_FOUND, 404);
@@ -604,6 +641,10 @@ export async function removeAttachment(ticketId: string, attachmentId: string, u
     .limit(1);
 
   if (!attachment) throw new AppError(MSG.ATTACHMENT_NOT_FOUND, 404);
+
+  const [ticketRow] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticketId)).limit(1);
+  if (!ticketRow) throw new AppError(MSG.NOT_FOUND, 404);
+  assertTicketEditable(ticketRow);
 
   if (attachment.uploadedBy !== userId && userRole !== 'gestor' && userRole !== 'super_admin') {
     throw new AppError(MSG.NO_PERMISSION, 403);
@@ -640,6 +681,9 @@ export async function listAttachments(ticketId: string) {
 // --- Time Entries ---
 
 export async function listTicketTimeEntries(ticketId: string, userId: string, userRole: string, userClientId?: string) {
+  if (userRole === 'user') {
+    throw new AppError(MSG.CLIENT_NO_TIME_ACCESS, 403);
+  }
   await getTicketById(ticketId, userId, userRole, userClientId);
 
   const data = await db
