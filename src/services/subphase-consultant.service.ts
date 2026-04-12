@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { subphaseConsultants, projectSubphases, projectPhases, projectAllocations, users } from '../db/schema';
 import { AppError } from '../utils/app-error';
+import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
   SUBPHASE_NOT_FOUND: 'Subfase não encontrada.',
@@ -25,7 +26,7 @@ export async function listConsultants(subphaseId: string) {
     .where(eq(subphaseConsultants.subphaseId, subphaseId));
 }
 
-export async function addConsultant(subphaseId: string, userId: string, estimatedHours?: number) {
+export async function addConsultant(subphaseId: string, userId: string, estimatedHours?: number, requestUserId?: string, requestUserRole?: string) {
   const [subphase] = await db.select({
     id: projectSubphases.id,
     phaseId: projectSubphases.phaseId,
@@ -35,6 +36,11 @@ export async function addConsultant(subphaseId: string, userId: string, estimate
   const [phase] = await db.select({ projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, subphase.phaseId)).limit(1);
   if (!phase) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+
+  // Validar acesso do usuário que faz a requisição ao projeto
+  if (requestUserId && requestUserRole) {
+    await assertUserHasProjectAccess(requestUserId, requestUserRole, phase.projectId);
+  }
 
   const [allocation] = await db.select({ id: projectAllocations.id })
     .from(projectAllocations)
@@ -81,10 +87,14 @@ export async function removeConsultant(subphaseId: string, userId: string) {
   return { success: true };
 }
 
-export async function loadConsultants(phaseId: string) {
+export async function loadConsultants(phaseId: string, requestUserId?: string, requestUserRole?: string) {
   const [phase] = await db.select({ id: projectPhases.id, projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
   if (!phase) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+
+  if (requestUserId && requestUserRole) {
+    await assertUserHasProjectAccess(requestUserId, requestUserRole, phase.projectId);
+  }
 
   const allocations = await db.select({ userId: projectAllocations.userId })
     .from(projectAllocations)

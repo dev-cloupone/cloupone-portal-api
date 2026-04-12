@@ -1,6 +1,6 @@
 import { eq, and, between, count as drizzleCount, desc, asc, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, subphaseConsultants } from '../db/schema';
+import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -15,6 +15,7 @@ const MSG = {
   SUBPHASE_NOT_FOUND: 'Subfase não encontrada.',
   SUBPHASE_NOT_IN_PROGRESS: 'Subfase não está em andamento.',
   NOT_LINKED_TO_SUBPHASE: 'Consultor não está vinculado a esta subfase.',
+  SUBPHASE_NOT_IN_PROJECT: 'Subfase não pertence ao projeto selecionado.',
 } as const;
 
 // --- Time utility functions ---
@@ -234,6 +235,7 @@ export async function getWeekEntries(userId: string, weekStartDate: string) {
 
 interface UpsertEntryInput {
   userId: string;
+  userRole?: string;
   id?: string;
   projectId: string;
   categoryId?: string | null;
@@ -294,11 +296,25 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     if (!subphase) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
     if (subphase.status !== 'in_progress') throw new AppError(MSG.SUBPHASE_NOT_IN_PROGRESS, 400);
 
-    const [link] = await db.select({ id: subphaseConsultants.id })
-      .from(subphaseConsultants)
-      .where(and(eq(subphaseConsultants.subphaseId, data.subphaseId), eq(subphaseConsultants.userId, data.userId)))
-      .limit(1);
-    if (!link) throw new AppError(MSG.NOT_LINKED_TO_SUBPHASE, 400);
+    if (data.userRole === 'gestor' || data.userRole === 'super_admin') {
+      // Validar que a subfase pertence ao projeto
+      const [spInProject] = await db.select({ id: projectSubphases.id })
+        .from(projectSubphases)
+        .innerJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
+        .where(and(
+          eq(projectSubphases.id, data.subphaseId),
+          eq(projectPhases.projectId, data.projectId),
+        ))
+        .limit(1);
+      if (!spInProject) throw new AppError(MSG.SUBPHASE_NOT_IN_PROJECT, 400);
+    } else {
+      // consultor: check subphase_consultants
+      const [link] = await db.select({ id: subphaseConsultants.id })
+        .from(subphaseConsultants)
+        .where(and(eq(subphaseConsultants.subphaseId, data.subphaseId), eq(subphaseConsultants.userId, data.userId)))
+        .limit(1);
+      if (!link) throw new AppError(MSG.NOT_LINKED_TO_SUBPHASE, 400);
+    }
   }
 
   // 6. Calculate hours

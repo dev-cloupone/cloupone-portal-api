@@ -4,6 +4,7 @@ import { projectPhases, projectSubphases, timeEntries, projects, projectAllocati
 import { clients } from '../db/schema/clients';
 import type { SQL } from 'drizzle-orm';
 import { AppError } from '../utils/app-error';
+import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
   PROJECT_NOT_FOUND: 'Projeto não encontrado.',
@@ -14,10 +15,14 @@ const MSG = {
   INVALID_SUBPHASE_IDS: 'Uma ou mais subfases selecionadas não pertencem às fases informadas.',
 } as const;
 
-export async function listPhases(projectId: string) {
+export async function listPhases(projectId: string, userId?: string, userRole?: string) {
   const [project] = await db.select({ id: projects.id })
     .from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+
+  if (userId && userRole) {
+    await assertUserHasProjectAccess(userId, userRole, projectId);
+  }
 
   const phases = await db.select()
     .from(projectPhases)
@@ -62,10 +67,14 @@ export async function listPhases(projectId: string) {
 export async function createPhase(projectId: string, data: {
   name: string;
   description?: string;
-}) {
+}, userId?: string, userRole?: string) {
   const [project] = await db.select({ id: projects.id })
     .from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+
+  if (userId && userRole) {
+    await assertUserHasProjectAccess(userId, userRole, projectId);
+  }
 
   const [maxOrder] = await db.select({ max: sql<number>`COALESCE(MAX(${projectPhases.order}), -1)` })
     .from(projectPhases)
@@ -85,10 +94,14 @@ export async function updatePhase(phaseId: string, data: Partial<{
   name: string;
   description: string;
   order: number;
-}>) {
-  const [existing] = await db.select({ id: projectPhases.id })
+}>, userId?: string, userRole?: string) {
+  const [existing] = await db.select({ id: projectPhases.id, projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
   if (!existing) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+
+  if (userId && userRole) {
+    await assertUserHasProjectAccess(userId, userRole, existing.projectId);
+  }
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) updateData.name = data.name;
@@ -100,10 +113,14 @@ export async function updatePhase(phaseId: string, data: Partial<{
   return updated;
 }
 
-export async function deactivatePhase(phaseId: string) {
-  const [existing] = await db.select({ id: projectPhases.id })
+export async function deactivatePhase(phaseId: string, userId?: string, userRole?: string) {
+  const [existing] = await db.select({ id: projectPhases.id, projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
   if (!existing) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+
+  if (userId && userRole) {
+    await assertUserHasProjectAccess(userId, userRole, existing.projectId);
+  }
 
   const [updated] = await db.update(projectPhases)
     .set({ isActive: false, updatedAt: new Date() })

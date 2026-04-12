@@ -5,6 +5,7 @@ import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import * as expenseNotification from './expense-notification.service';
+import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
   NOT_FOUND: 'Despesa não encontrada.',
@@ -218,6 +219,9 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     .where(eq(projects.id, data.projectId))
     .limit(1);
   if (!project || !project.isActive) throw new AppError(MSG.PROJECT_NOT_FOUND, 400);
+
+  // Validar acesso do gestor ao projeto
+  await assertUserHasProjectAccess(requestUserId, requestUserRole, data.projectId);
 
   // Determine consultant user id
   let consultantUserId: string | null = null;

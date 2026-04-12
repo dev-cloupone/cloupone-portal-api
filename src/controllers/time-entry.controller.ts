@@ -47,6 +47,7 @@ const upsert: RequestHandler = async (req, res, next) => {
     const data = upsertEntrySchema.parse(req.body);
     const result = await timeEntryService.upsertTimeEntry({
       userId: req.userId!,
+      userRole: req.userRole,
       id: data.id,
       projectId: data.projectId,
       categoryId: data.categoryId,
