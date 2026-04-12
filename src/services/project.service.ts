@@ -1,4 +1,4 @@
-import { eq, and, count as drizzleCount, desc } from 'drizzle-orm';
+import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { projects, clients, projectAllocations, users } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -12,8 +12,13 @@ const PROJECT = {
   ALLOCATION_NOT_FOUND: 'Alocação não encontrada.',
 } as const;
 
-export async function listProjects(params: PaginationParams & { clientId?: string; status?: string }) {
-  const { page, limit, clientId, status } = params;
+export async function listProjects(params: PaginationParams & {
+  clientId?: string;
+  status?: string;
+  userId?: string;
+  userRole?: string;
+}) {
+  const { page, limit, clientId, status, userId, userRole } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [eq(projects.isActive, true)];
@@ -21,6 +26,46 @@ export async function listProjects(params: PaginationParams & { clientId?: strin
   if (status) conditions.push(eq(projects.status, status as 'active' | 'paused' | 'finished'));
 
   const where = and(...conditions);
+
+  // Gestor vê apenas projetos alocados
+  if (userRole === 'gestor' && userId) {
+    const allocations = await db.select({ projectId: projectAllocations.projectId })
+      .from(projectAllocations)
+      .where(eq(projectAllocations.userId, userId));
+
+    if (allocations.length === 0) return { data: [], meta: buildMeta(0, { page, limit }) };
+
+    const allocatedIds = allocations.map(a => a.projectId);
+    const gestorWhere = and(...conditions, inArray(projects.id, allocatedIds));
+
+    const [data, [{ total }]] = await Promise.all([
+      db.select({
+        id: projects.id,
+        name: projects.name,
+        description: projects.description,
+        clientId: projects.clientId,
+        clientName: clients.companyName,
+        status: projects.status,
+        billingRate: projects.billingRate,
+        budgetHours: projects.budgetHours,
+        budgetType: projects.budgetType,
+        startDate: projects.startDate,
+        endDate: projects.endDate,
+        isActive: projects.isActive,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+      })
+        .from(projects)
+        .leftJoin(clients, eq(projects.clientId, clients.id))
+        .where(gestorWhere)
+        .orderBy(desc(projects.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: drizzleCount() }).from(projects).where(gestorWhere),
+    ]);
+
+    return { data, meta: buildMeta(total, { page, limit }) };
+  }
 
   const [data, [{ total }]] = await Promise.all([
     db.select({

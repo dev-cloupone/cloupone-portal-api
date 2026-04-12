@@ -9,6 +9,10 @@ const router = Router();
 
 router.use(auth, authenticatedRateLimit);
 
+// Clone de Fases (super_admin + gestor) — antes das rotas com :phaseId
+router.get('/projects/:projectId/phases/clonable-projects', authorize('super_admin', 'gestor'), phaseController.listClonableProjects);
+router.post('/projects/:projectId/phases/clone', authorize('super_admin', 'gestor'), phaseController.clonePhases);
+
 // Fases — CRUD (super_admin + gestor)
 router.get('/projects/:projectId/phases', phaseController.listPhases);
 router.post('/projects/:projectId/phases', authorize('super_admin', 'gestor'), phaseController.createPhase);

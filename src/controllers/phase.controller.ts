@@ -27,7 +27,7 @@ const reorderSchema = z.object({
 
 const listPhases: RequestHandler = async (req, res, next) => {
   try {
-    const data = await phaseService.listPhases(idSchema.parse(req.params.projectId));
+    const data = await phaseService.listPhases(idSchema.parse(req.params.projectId), req.userId, req.userRole);
     res.json({ data });
   } catch (err) { next(err); }
 };
@@ -35,7 +35,7 @@ const listPhases: RequestHandler = async (req, res, next) => {
 const createPhase: RequestHandler = async (req, res, next) => {
   try {
     const data = createPhaseSchema.parse(req.body);
-    const phase = await phaseService.createPhase(idSchema.parse(req.params.projectId), data);
+    const phase = await phaseService.createPhase(idSchema.parse(req.params.projectId), data, req.userId, req.userRole);
     res.status(201).json(phase);
   } catch (err) { next(err); }
 };
@@ -43,14 +43,14 @@ const createPhase: RequestHandler = async (req, res, next) => {
 const updatePhase: RequestHandler = async (req, res, next) => {
   try {
     const data = updatePhaseSchema.parse(req.body);
-    const phase = await phaseService.updatePhase(idSchema.parse(req.params.phaseId), data);
+    const phase = await phaseService.updatePhase(idSchema.parse(req.params.phaseId), data, req.userId, req.userRole);
     res.json(phase);
   } catch (err) { next(err); }
 };
 
 const deactivatePhase: RequestHandler = async (req, res, next) => {
   try {
-    const phase = await phaseService.deactivatePhase(idSchema.parse(req.params.phaseId));
+    const phase = await phaseService.deactivatePhase(idSchema.parse(req.params.phaseId), req.userId, req.userRole);
     res.json(phase);
   } catch (err) { next(err); }
 };
@@ -136,8 +136,35 @@ const listAvailableSubphases: RequestHandler = async (req, res, next) => {
   try {
     const projectId = idSchema.parse(req.params.projectId);
     const userId = req.userId!;
-    const data = await subphaseService.listAvailableForTimeEntry(projectId, userId);
+    const data = await subphaseService.listAvailableForTimeEntry(projectId, userId, req.userRole);
     res.json({ data });
+  } catch (err) { next(err); }
+};
+
+// --- Clone de Fases ---
+
+const clonePhasesSchema = z.object({
+  sourceProjectId: z.string().uuid(V.uuidInvalid('Projeto de origem')),
+  phases: z.array(z.object({
+    phaseId: z.string().uuid(V.uuidInvalid('Fase')),
+    subphaseIds: z.array(z.string().uuid(V.uuidInvalid('Subfase'))).min(1, V.required('Subfases')),
+  })).min(1, V.required('Fases')),
+});
+
+const listClonableProjects: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = idSchema.parse(req.params.projectId);
+    const data = await phaseService.listClonableProjects(projectId, req.userId!, req.userRole!);
+    res.json({ data });
+  } catch (err) { next(err); }
+};
+
+const clonePhases: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = idSchema.parse(req.params.projectId);
+    const { sourceProjectId, phases } = clonePhasesSchema.parse(req.body);
+    const data = await phaseService.clonePhases(projectId, sourceProjectId, phases, req.userId!, req.userRole!);
+    res.status(201).json({ data });
   } catch (err) { next(err); }
 };
 
@@ -182,4 +209,6 @@ export const phaseController = {
   phasesDashboard,
   listSubphaseTimeEntries,
   listPhaseTimeEntries,
+  listClonableProjects,
+  clonePhases,
 };

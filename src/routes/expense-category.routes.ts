@@ -8,8 +8,8 @@ const router = Router();
 
 router.get('/', auth, authenticatedRateLimit, expenseCategoryController.list);
 router.get('/:id', auth, authenticatedRateLimit, expenseCategoryController.getById);
-router.post('/', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, expenseCategoryController.create);
-router.put('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, expenseCategoryController.update);
-router.delete('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, expenseCategoryController.deactivate);
+router.post('/', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.create);
+router.put('/:id', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.update);
+router.delete('/:id', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.deactivate);
 
 export { router as expenseCategoryRoutes };

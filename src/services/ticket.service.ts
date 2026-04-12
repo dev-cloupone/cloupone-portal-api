@@ -6,6 +6,7 @@ import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import { notifyTicketCreated, notifyTicketAssigned, notifyStatusChanged, notifyNewComment } from './ticket-notification.service';
+import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
   NOT_FOUND: 'Ticket não encontrado.',
@@ -50,29 +51,6 @@ function canTransition(fromStatus: string, toStatus: string, userRole: string): 
 }
 
 // --- Helpers ---
-
-async function validateProjectAccess(projectId: string, userId: string, userRole: string, userClientId?: string): Promise<void> {
-  if (userRole === 'super_admin' || userRole === 'gestor') return;
-
-  if (userRole === 'consultor') {
-    const [allocation] = await db
-      .select({ id: projectAllocations.id })
-      .from(projectAllocations)
-      .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
-      .limit(1);
-    if (!allocation) throw new AppError(MSG.NO_ACCESS, 403);
-    return;
-  }
-
-  // role 'user'
-  if (!userClientId) throw new AppError(MSG.NO_ACCESS, 403);
-  const [project] = await db
-    .select({ clientId: projects.clientId })
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1);
-  if (!project || project.clientId !== userClientId) throw new AppError(MSG.NO_ACCESS, 403);
-}
 
 async function generateTicketCode(projectId: string): Promise<string> {
   const [project] = await db
@@ -163,7 +141,7 @@ export async function createTicket(data: {
   dueDate?: string | null;
   estimatedHours?: number | null;
 }) {
-  await validateProjectAccess(data.projectId, data.createdBy, data.createdByRole, data.createdByClientId);
+  await assertUserHasProjectAccess(data.createdBy, data.createdByRole, data.projectId, data.createdByClientId);
 
   const isVisibleToClient = data.createdByRole === 'user' ? true : (data.isVisibleToClient ?? true);
   const code = await generateTicketCode(data.projectId);
@@ -248,7 +226,7 @@ export async function getTicketById(ticketId: string, userId: string, userRole: 
     // Check client access
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
     if (!userClientId || project?.clientId !== userClientId) throw new AppError(MSG.NOT_FOUND, 404);
-  } else if (userRole === 'consultor') {
+  } else if (userRole === 'gestor' || userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
@@ -289,7 +267,7 @@ export async function listTickets(params: {
     const clientProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.clientId, userClientId));
     if (clientProjects.length === 0) return { data: [], meta: buildMeta(0, { page, limit }) };
     conditions.push(inArray(tickets.projectId, clientProjects.map(p => p.id)));
-  } else if (userRole === 'consultor') {
+  } else if (userRole === 'gestor' || userRole === 'consultor') {
     const allocations = await db.select({ projectId: projectAllocations.projectId }).from(projectAllocations).where(eq(projectAllocations.userId, userId));
     if (allocations.length === 0) return { data: [], meta: buildMeta(0, { page, limit }) };
     conditions.push(inArray(tickets.projectId, allocations.map(a => a.projectId)));
@@ -395,7 +373,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
     if (!userClientId || project?.clientId !== userClientId) throw new AppError(MSG.NOT_FOUND, 404);
-  } else if (userRole === 'consultor') {
+  } else if (userRole === 'gestor' || userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
@@ -528,7 +506,7 @@ export async function addComment(data: {
     if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
     if (!data.userClientId || project?.clientId !== data.userClientId) throw new AppError(MSG.NOT_FOUND, 404);
-  } else if (data.userRole === 'consultor') {
+  } else if (data.userRole === 'gestor' || data.userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
@@ -723,7 +701,7 @@ export async function getTicketStats(params: {
     const clientProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.clientId, userClientId));
     if (clientProjects.length === 0) return emptyStats();
     conditions.push(inArray(tickets.projectId, clientProjects.map(p => p.id)));
-  } else if (userRole === 'consultor') {
+  } else if (userRole === 'gestor' || userRole === 'consultor') {
     const allocations = await db.select({ projectId: projectAllocations.projectId }).from(projectAllocations).where(eq(projectAllocations.userId, userId));
     if (allocations.length === 0) return emptyStats();
     conditions.push(inArray(tickets.projectId, allocations.map(a => a.projectId)));

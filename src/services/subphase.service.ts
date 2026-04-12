@@ -12,8 +12,8 @@ const MSG = {
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   planned: ['in_progress'],
-  in_progress: ['completed'],
-  completed: [],
+  in_progress: ['completed', 'planned'],
+  completed: ['in_progress', 'planned'],
 };
 
 export async function listSubphases(phaseId: string) {
@@ -160,7 +160,39 @@ export async function reorderSubphases(phaseId: string, orderedIds: string[]) {
   return { success: true };
 }
 
-export async function listAvailableForTimeEntry(projectId: string, userId: string) {
+export async function listAvailableForTimeEntry(projectId: string, userId: string, userRole?: string) {
+  // Gestor e super_admin veem todas subfases in_progress do projeto
+  if (userRole === 'gestor' || userRole === 'super_admin') {
+    const rows = await db.select({
+      id: projectSubphases.id,
+      name: projectSubphases.name,
+      phaseId: projectSubphases.phaseId,
+      phaseName: projectPhases.name,
+      estimatedHours: projectSubphases.estimatedHours,
+      consultantEstimatedHours: sql<string | null>`null`,
+    })
+      .from(projectSubphases)
+      .innerJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
+      .where(and(
+        eq(projectPhases.projectId, projectId),
+        eq(projectSubphases.status, 'in_progress'),
+        eq(projectSubphases.isActive, true),
+        eq(projectPhases.isActive, true),
+      ))
+      .orderBy(asc(projectPhases.order), asc(projectSubphases.order));
+
+    return Promise.all(rows.map(async (row) => {
+      const [result] = await db.select({ total: sum(timeEntries.hours) })
+        .from(timeEntries)
+        .where(and(eq(timeEntries.subphaseId, row.id), eq(timeEntries.userId, userId)));
+      return {
+        ...row,
+        consultantActualHours: Number(result?.total || 0),
+      };
+    }));
+  }
+
+  // Consultor: apenas subfases onde está vinculado
   const rows = await db.select({
     id: projectSubphases.id,
     name: projectSubphases.name,

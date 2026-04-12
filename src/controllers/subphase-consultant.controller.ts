@@ -24,7 +24,7 @@ const list: RequestHandler = async (req, res, next) => {
 const add: RequestHandler = async (req, res, next) => {
   try {
     const { userId, estimatedHours } = addConsultantSchema.parse(req.body);
-    const result = await consultantService.addConsultant(idSchema.parse(req.params.subphaseId), userId, estimatedHours);
+    const result = await consultantService.addConsultant(idSchema.parse(req.params.subphaseId), userId, estimatedHours, req.userId, req.userRole);
     res.status(201).json(result);
   } catch (err) { next(err); }
 };
@@ -53,7 +53,7 @@ const remove: RequestHandler = async (req, res, next) => {
 
 const loadConsultants: RequestHandler = async (req, res, next) => {
   try {
-    const result = await consultantService.loadConsultants(idSchema.parse(req.params.phaseId));
+    const result = await consultantService.loadConsultants(idSchema.parse(req.params.phaseId), req.userId, req.userRole);
     res.json(result);
   } catch (err) { next(err); }
 };
