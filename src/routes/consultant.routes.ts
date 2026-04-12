@@ -9,12 +9,12 @@ const router = Router();
 // Consultant can list their own allocated projects
 router.get('/:userId/projects', auth, authenticatedRateLimit, consultantController.listProjects);
 
-// All other routes require admin/gestor
-router.use(auth, authorize('super_admin'), authenticatedRateLimit);
+// Read routes (super_admin + gestor)
+router.get('/', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, consultantController.list);
+router.get('/:userId', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, consultantController.getByUserId);
 
-router.get('/', consultantController.list);
-router.get('/:userId', consultantController.getByUserId);
-router.post('/', consultantController.create);
-router.patch('/:userId', consultantController.update);
+// Write routes (super_admin only)
+router.post('/', auth, authorize('super_admin'), authenticatedRateLimit, consultantController.create);
+router.patch('/:userId', auth, authorize('super_admin'), authenticatedRateLimit, consultantController.update);
 
 export { router as consultantRoutes };
