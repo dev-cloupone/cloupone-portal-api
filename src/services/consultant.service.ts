@@ -21,6 +21,7 @@ export async function listConsultants(params: PaginationParams) {
       userId: consultantProfiles.userId,
       userName: users.name,
       userEmail: users.email,
+      userRole: users.role,
       hourlyRate: consultantProfiles.hourlyRate,
       contractType: consultantProfiles.contractType,
       allowOverlappingEntries: consultantProfiles.allowOverlappingEntries,
@@ -44,6 +45,7 @@ export async function getConsultantByUserId(userId: string) {
     userId: consultantProfiles.userId,
     userName: users.name,
     userEmail: users.email,
+    userRole: users.role,
     hourlyRate: consultantProfiles.hourlyRate,
     contractType: consultantProfiles.contractType,
     allowOverlappingEntries: consultantProfiles.allowOverlappingEntries,
@@ -77,12 +79,13 @@ export async function createConsultant(data: { userId: string; hourlyRate: numbe
       allowOverlappingEntries: data.allowOverlappingEntries ?? false,
     }).returning();
 
-    // Update role to 'consultor' if currently 'user'
+    // Update role to 'consultor' if currently 'user' (gestor mantém seu role)
     if (user.role === 'user') {
       await tx.update(users)
         .set({ role: 'consultor', updatedAt: new Date() })
         .where(eq(users.id, data.userId));
     }
+    // gestor e super_admin mantêm seus roles originais
 
     return profile;
   });
