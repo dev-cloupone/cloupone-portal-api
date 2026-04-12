@@ -141,6 +141,33 @@ const listAvailableSubphases: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// --- Clone de Fases ---
+
+const clonePhasesSchema = z.object({
+  sourceProjectId: z.string().uuid(V.uuidInvalid('Projeto de origem')),
+  phases: z.array(z.object({
+    phaseId: z.string().uuid(V.uuidInvalid('Fase')),
+    subphaseIds: z.array(z.string().uuid(V.uuidInvalid('Subfase'))).min(1, V.required('Subfases')),
+  })).min(1, V.required('Fases')),
+});
+
+const listClonableProjects: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = idSchema.parse(req.params.projectId);
+    const data = await phaseService.listClonableProjects(projectId, req.userId!, req.userRole!);
+    res.json({ data });
+  } catch (err) { next(err); }
+};
+
+const clonePhases: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = idSchema.parse(req.params.projectId);
+    const { sourceProjectId, phases } = clonePhasesSchema.parse(req.body);
+    const data = await phaseService.clonePhases(projectId, sourceProjectId, phases, req.userId!, req.userRole!);
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
+};
+
 const phasesDashboard: RequestHandler = async (_req, res, next) => {
   try {
     const data = await phaseService.getPhasesDashboard();
@@ -182,4 +209,6 @@ export const phaseController = {
   phasesDashboard,
   listSubphaseTimeEntries,
   listPhaseTimeEntries,
+  listClonableProjects,
+  clonePhases,
 };

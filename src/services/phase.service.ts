@@ -1,12 +1,17 @@
-import { eq, and, asc, sum, sql, count as drizzleCount } from 'drizzle-orm';
+import { eq, and, asc, sum, sql, count as drizzleCount, ne, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { projectPhases, projectSubphases, timeEntries, projects } from '../db/schema';
+import { projectPhases, projectSubphases, timeEntries, projects, projectAllocations } from '../db/schema';
+import { clients } from '../db/schema/clients';
 import type { SQL } from 'drizzle-orm';
 import { AppError } from '../utils/app-error';
 
 const MSG = {
   PROJECT_NOT_FOUND: 'Projeto não encontrado.',
   PHASE_NOT_FOUND: 'Fase não encontrada.',
+  TARGET_HAS_PHASES: 'O projeto destino já possui fases ativas.',
+  SOURCE_ACCESS_DENIED: 'Você não tem acesso ao projeto de origem.',
+  INVALID_PHASE_IDS: 'Uma ou mais fases selecionadas não pertencem ao projeto de origem.',
+  INVALID_SUBPHASE_IDS: 'Uma ou mais subfases selecionadas não pertencem às fases informadas.',
 } as const;
 
 export async function listPhases(projectId: string) {
@@ -198,4 +203,190 @@ export async function getPhasesDashboard() {
     overdueSubphases,
     projectSummaries: summaries,
   };
+}
+
+// --- Clone de Fases ---
+
+export async function listClonableProjects(targetProjectId: string, userId: string, userRole: string) {
+  // Base query: projetos ativos com fases ativas, excluindo o projeto destino
+  let projectRows;
+
+  if (userRole === 'super_admin') {
+    projectRows = await db.select({
+      id: projects.id,
+      name: projects.name,
+      clientName: clients.companyName,
+    })
+      .from(projects)
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .where(and(
+        eq(projects.isActive, true),
+        ne(projects.id, targetProjectId),
+      ));
+  } else {
+    // Gestor: apenas projetos em que está alocado
+    projectRows = await db.select({
+      id: projects.id,
+      name: projects.name,
+      clientName: clients.companyName,
+    })
+      .from(projects)
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .innerJoin(projectAllocations, and(
+        eq(projectAllocations.projectId, projects.id),
+        eq(projectAllocations.userId, userId),
+      ))
+      .where(and(
+        eq(projects.isActive, true),
+        ne(projects.id, targetProjectId),
+      ));
+  }
+
+  // Filtrar apenas projetos que têm fases ativas e enriquecer com fases + subfases
+  const result = [];
+  for (const proj of projectRows) {
+    const phases = await db.select({
+      id: projectPhases.id,
+      name: projectPhases.name,
+    })
+      .from(projectPhases)
+      .where(and(eq(projectPhases.projectId, proj.id), eq(projectPhases.isActive, true)))
+      .orderBy(asc(projectPhases.order));
+
+    if (phases.length === 0) continue;
+
+    const phasesWithSubphases = await Promise.all(phases.map(async (phase) => {
+      const subphases = await db.select({
+        id: projectSubphases.id,
+        name: projectSubphases.name,
+        estimatedHours: projectSubphases.estimatedHours,
+      })
+        .from(projectSubphases)
+        .where(and(eq(projectSubphases.phaseId, phase.id), eq(projectSubphases.isActive, true)))
+        .orderBy(asc(projectSubphases.order));
+
+      return {
+        ...phase,
+        subphases: subphases.map(sp => ({
+          ...sp,
+          estimatedHours: sp.estimatedHours ? Number(sp.estimatedHours) : null,
+        })),
+      };
+    }));
+
+    result.push({
+      id: proj.id,
+      name: proj.name,
+      clientName: proj.clientName,
+      phases: phasesWithSubphases,
+    });
+  }
+
+  return result;
+}
+
+export async function clonePhases(
+  targetProjectId: string,
+  sourceProjectId: string,
+  phases: Array<{ phaseId: string; subphaseIds: string[] }>,
+  userId: string,
+  userRole: string,
+) {
+  // 1. Validar que o projeto destino existe
+  const [targetProject] = await db.select({ id: projects.id })
+    .from(projects).where(eq(projects.id, targetProjectId)).limit(1);
+  if (!targetProject) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+
+  // 2. Validar que o projeto destino não tem fases ativas
+  const existingPhases = await db.select({ id: projectPhases.id })
+    .from(projectPhases)
+    .where(and(eq(projectPhases.projectId, targetProjectId), eq(projectPhases.isActive, true)))
+    .limit(1);
+  if (existingPhases.length > 0) throw new AppError(MSG.TARGET_HAS_PHASES, 400);
+
+  // 3. Validar acesso do gestor ao projeto de origem
+  if (userRole !== 'super_admin') {
+    const [allocation] = await db.select({ id: projectAllocations.id })
+      .from(projectAllocations)
+      .where(and(
+        eq(projectAllocations.projectId, sourceProjectId),
+        eq(projectAllocations.userId, userId),
+      ))
+      .limit(1);
+    if (!allocation) throw new AppError(MSG.SOURCE_ACCESS_DENIED, 403);
+  }
+
+  // 4. Validar que os phaseIds existem no projeto de origem
+  const sourcePhaseIds = phases.map(p => p.phaseId);
+  const sourcePhases = await db.select()
+    .from(projectPhases)
+    .where(and(
+      eq(projectPhases.projectId, sourceProjectId),
+      eq(projectPhases.isActive, true),
+      inArray(projectPhases.id, sourcePhaseIds),
+    ))
+    .orderBy(asc(projectPhases.order));
+
+  if (sourcePhases.length !== sourcePhaseIds.length) {
+    throw new AppError(MSG.INVALID_PHASE_IDS, 400);
+  }
+
+  // 5. Validar que os subphaseIds existem nas fases correspondentes
+  for (const p of phases) {
+    const sourceSubphases = await db.select({ id: projectSubphases.id })
+      .from(projectSubphases)
+      .where(and(
+        eq(projectSubphases.phaseId, p.phaseId),
+        eq(projectSubphases.isActive, true),
+        inArray(projectSubphases.id, p.subphaseIds),
+      ));
+    if (sourceSubphases.length !== p.subphaseIds.length) {
+      throw new AppError(MSG.INVALID_SUBPHASE_IDS, 400);
+    }
+  }
+
+  // 6. Executar clone em transação
+  return db.transaction(async (tx) => {
+    const createdPhases = [];
+    let phaseOrder = 0;
+
+    for (const p of phases) {
+      const sourcePhase = sourcePhases.find(sp => sp.id === p.phaseId)!;
+
+      const [newPhase] = await tx.insert(projectPhases).values({
+        projectId: targetProjectId,
+        name: sourcePhase.name,
+        description: sourcePhase.description,
+        order: phaseOrder++,
+      }).returning();
+
+      // Buscar subfases de origem na ordem correta
+      const sourceSubphases = await tx.select()
+        .from(projectSubphases)
+        .where(and(
+          eq(projectSubphases.phaseId, p.phaseId),
+          eq(projectSubphases.isActive, true),
+          inArray(projectSubphases.id, p.subphaseIds),
+        ))
+        .orderBy(asc(projectSubphases.order));
+
+      let subOrder = 0;
+      const createdSubphases = [];
+      for (const sp of sourceSubphases) {
+        const [newSp] = await tx.insert(projectSubphases).values({
+          phaseId: newPhase.id,
+          name: sp.name,
+          description: sp.description,
+          estimatedHours: sp.estimatedHours,
+          order: subOrder++,
+          // status defaults to 'planned', sem datas, sem consultores
+        }).returning();
+        createdSubphases.push(newSp);
+      }
+
+      createdPhases.push({ ...newPhase, subphases: createdSubphases });
+    }
+
+    return createdPhases;
+  });
 }
