@@ -149,7 +149,7 @@ export async function notifyStatusChanged(ticketId: string, oldStatus: string, n
 
     for (const recipient of recipients) {
       // Don't send to clients if ticket is not visible
-      if (recipient.role === 'user' && !ticket.isVisibleToClient) continue;
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
       const emailData = buildTicketStatusChangedEmail({
         recipientName: recipient.name,
@@ -212,9 +212,9 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
 
     for (const recipient of recipients) {
       // Internal comments: don't send to clients
-      if (isInternal && recipient.role === 'user') continue;
+      if (isInternal && recipient.role === 'client') continue;
       // Ticket not visible: don't send to clients
-      if (recipient.role === 'user' && !ticket.isVisibleToClient) continue;
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
       const emailData = buildTicketCommentEmail({
         recipientName: recipient.name,

@@ -85,6 +85,13 @@
       "when": 1776200000000,
       "tag": "0011_ticket_type_redesign",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776122336852,
+      "tag": "0012_daily_black_crow",
+      "breakpoints": true
     }
   ]
 }

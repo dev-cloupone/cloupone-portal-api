@@ -11,18 +11,24 @@ const createUserSchema = z.object({
   email: z.string().email(V.emailInvalid),
   name: z.string().min(1, V.required('Nome')).max(200, V.max('Nome', 200)),
   password: z.string().min(8, V.min('Senha', 8)),
-  role: z.enum(['super_admin', 'gestor', 'consultor', 'user'], { message: V.enumInvalidFem('Função') }),
+  role: z.enum(['super_admin', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).nullable().optional(),
-});
+}).refine(
+  (data) => data.role !== 'client' || (data.clientId != null && data.clientId !== ''),
+  { message: 'Cliente é obrigatório para a função Cliente.', path: ['clientId'] },
+);
 
 const updateUserSchema = z.object({
   name: z.string().min(1, V.required('Nome')).max(200, V.max('Nome', 200)).optional(),
   email: z.string().email(V.emailInvalid).optional(),
-  role: z.enum(['super_admin', 'gestor', 'consultor', 'user'], { message: V.enumInvalidFem('Função') }).optional(),
+  role: z.enum(['super_admin', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }).optional(),
   isActive: z.boolean().optional(),
   password: z.string().min(8, V.min('Senha', 8)).optional(),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).nullable().optional(),
-});
+}).refine(
+  (data) => data.role !== 'client' || (data.clientId != null && data.clientId !== ''),
+  { message: 'Cliente é obrigatório para a função Cliente.', path: ['clientId'] },
+);
 
 const list: RequestHandler = async (req, res, next) => {
   try {

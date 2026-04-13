@@ -61,7 +61,7 @@ export async function listUsers(pagination: PaginationParams) {
   return { data, meta: buildMeta(total, pagination) };
 }
 
-export async function createUser(data: { name: string; email: string; password: string; role: 'super_admin' | 'gestor' | 'consultor' | 'user'; clientId?: string | null }) {
+export async function createUser(data: { name: string; email: string; password: string; role: 'super_admin' | 'gestor' | 'consultor' | 'client'; clientId?: string | null }) {
   const [existing] = await db
     .select({ id: users.id })
     .from(users)
@@ -87,7 +87,7 @@ export async function createUser(data: { name: string; email: string; password: 
       role: data.role,
       isActive: true,
       mustChangePassword,
-      clientId: data.role === 'user' ? (data.clientId ?? null) : null,
+      clientId: data.role === 'client' ? (data.clientId ?? null) : null,
     })
     .returning(safeFields);
 
@@ -117,7 +117,7 @@ export async function createUser(data: { name: string; email: string; password: 
 
 export async function updateUser(
   id: string,
-  data: { name?: string; email?: string; role?: 'super_admin' | 'gestor' | 'consultor' | 'user'; isActive?: boolean; password?: string; clientId?: string | null },
+  data: { name?: string; email?: string; role?: 'super_admin' | 'gestor' | 'consultor' | 'client'; isActive?: boolean; password?: string; clientId?: string | null },
 ) {
   const [existing] = await db
     .select({ id: users.id, role: users.role })
@@ -161,7 +161,7 @@ export async function updateUser(
 }
 
 export async function getUserClientId(userId: string, userRole: string): Promise<string | undefined> {
-  if (userRole !== 'user') return undefined;
+  if (userRole !== 'client') return undefined;
   const [user] = await db.select({ clientId: users.clientId }).from(users).where(eq(users.id, userId)).limit(1);
   return user?.clientId ?? undefined;
 }

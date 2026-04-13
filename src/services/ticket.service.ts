@@ -36,7 +36,7 @@ const STATUS_ROLE_PERMISSIONS: Record<string, string[]> = {
   open: ['gestor', 'super_admin'],
 };
 
-// Regras complementares para o role 'user' (cliente), que dependem do status de origem.
+// Regras complementares para o role 'client', que dependem do status de origem.
 function canClientTransition(fromStatus: string, toStatus: string): boolean {
   // Cliente pode encerrar o ticket a qualquer momento.
   if (toStatus === 'finished') return true;
@@ -46,7 +46,7 @@ function canClientTransition(fromStatus: string, toStatus: string): boolean {
 }
 
 function canTransition(fromStatus: string, toStatus: string, userRole: string): boolean {
-  if (userRole === 'user' && canClientTransition(fromStatus, toStatus)) return true;
+  if (userRole === 'client' && canClientTransition(fromStatus, toStatus)) return true;
   return (STATUS_ROLE_PERMISSIONS[toStatus] || []).includes(userRole);
 }
 
@@ -143,7 +143,7 @@ export async function createTicket(data: {
 }) {
   await assertUserHasProjectAccess(data.createdBy, data.createdByRole, data.projectId, data.createdByClientId);
 
-  const isVisibleToClient = data.createdByRole === 'user' ? true : (data.isVisibleToClient ?? true);
+  const isVisibleToClient = data.createdByRole === 'client' ? true : (data.isVisibleToClient ?? true);
   const code = await generateTicketCode(data.projectId);
 
   const [ticket] = await db.insert(tickets).values({
@@ -221,7 +221,7 @@ export async function getTicketById(ticketId: string, userId: string, userRole: 
   if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
 
   // Check access
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
     // Check client access
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
@@ -260,7 +260,7 @@ export async function listTickets(params: {
   const conditions = [];
 
   // Permission-based filtering
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     if (!userClientId) return { data: [], meta: buildMeta(0, { page, limit }) };
     conditions.push(eq(tickets.isVisibleToClient, true));
     // Only projects from user's client
@@ -369,7 +369,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
 
   // Validate access
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
     if (!userClientId || project?.clientId !== userClientId) throw new AppError(MSG.NOT_FOUND, 404);
@@ -389,7 +389,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (!onlyStatusUpdate) {
       throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
     }
-    if (userRole === 'user') {
+    if (userRole === 'client') {
       throw new AppError(MSG.CLIENT_CANNOT_REOPEN, 403);
     }
   }
@@ -420,7 +420,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
 
   // Priority
   if (data.priority !== undefined && data.priority !== ticket.priority) {
-    if (userRole === 'user') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole === 'client') throw new AppError(MSG.NO_PERMISSION, 403);
     updateData.priority = data.priority;
     await recordHistory(ticketId, userId, 'priority', ticket.priority, data.priority);
   }
@@ -440,7 +440,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
 
   // Visibility
   if (data.isVisibleToClient !== undefined && data.isVisibleToClient !== ticket.isVisibleToClient) {
-    if (userRole === 'user') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole === 'client') throw new AppError(MSG.NO_PERMISSION, 403);
     updateData.isVisibleToClient = data.isVisibleToClient;
     await recordHistory(ticketId, userId, 'is_visible_to_client', String(ticket.isVisibleToClient), String(data.isVisibleToClient));
   }
@@ -502,7 +502,7 @@ export async function addComment(data: {
   const ticket = await getTicketByIdInternal(data.ticketId);
   if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
 
-  if (data.userRole === 'user') {
+  if (data.userRole === 'client') {
     if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
     if (!data.userClientId || project?.clientId !== data.userClientId) throw new AppError(MSG.NOT_FOUND, 404);
@@ -517,7 +517,7 @@ export async function addComment(data: {
 
   assertTicketEditable(ticket);
 
-  const isInternal = data.userRole === 'user' ? false : (data.isInternal ?? false);
+  const isInternal = data.userRole === 'client' ? false : (data.isInternal ?? false);
 
   const [comment] = await db.insert(ticketComments).values({
     ticketId: data.ticketId,
@@ -539,7 +539,7 @@ export async function listComments(ticketId: string, userId: string, userRole: s
   await getTicketById(ticketId, userId, userRole, userClientId);
 
   const conditions = [eq(ticketComments.ticketId, ticketId)];
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     conditions.push(eq(ticketComments.isInternal, false));
   }
 
@@ -659,7 +659,7 @@ export async function listAttachments(ticketId: string) {
 // --- Time Entries ---
 
 export async function listTicketTimeEntries(ticketId: string, userId: string, userRole: string, userClientId?: string) {
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     throw new AppError(MSG.CLIENT_NO_TIME_ACCESS, 403);
   }
   await getTicketById(ticketId, userId, userRole, userClientId);
@@ -695,7 +695,7 @@ export async function getTicketStats(params: {
   const conditions = [];
   if (projectId) conditions.push(eq(tickets.projectId, projectId));
 
-  if (userRole === 'user') {
+  if (userRole === 'client') {
     if (!userClientId) return emptyStats();
     conditions.push(eq(tickets.isVisibleToClient, true));
     const clientProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.clientId, userClientId));
