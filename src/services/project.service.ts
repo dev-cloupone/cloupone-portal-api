@@ -27,8 +27,8 @@ export async function listProjects(params: PaginationParams & {
 
   const where = and(...conditions);
 
-  // Gestor vê apenas projetos alocados
-  if (userRole === 'gestor' && userId) {
+  // Gestor e consultor veem apenas projetos alocados
+  if ((userRole === 'gestor' || userRole === 'consultor') && userId) {
     const allocations = await db.select({ projectId: projectAllocations.projectId })
       .from(projectAllocations)
       .where(eq(projectAllocations.userId, userId));
