@@ -6,6 +6,7 @@ import { buildTicketCreatedEmail } from '../emails/ticket-created';
 import { buildTicketAssignedEmail } from '../emails/ticket-assigned';
 import { buildTicketStatusChangedEmail } from '../emails/ticket-status-changed';
 import { buildTicketCommentEmail } from '../emails/ticket-comment';
+import { buildTicketAttachmentEmail } from '../emails/ticket-attachment';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -236,5 +237,54 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
     logger.info({ ticketId, commentId, isInternal }, 'Comment notifications sent');
   } catch (err) {
     logger.error({ err, ticketId, commentId }, 'Failed to send comment notifications');
+  }
+}
+
+export async function notifyNewAttachment(ticketId: string, uploadedBy: string, fileName: string) {
+  try {
+    const ticket = await getTicketData(ticketId);
+    if (!ticket) return;
+
+    const uploader = await getUserData(uploadedBy);
+    if (!uploader) return;
+
+    const recipientIds = new Set<string>();
+    if (ticket.createdBy !== uploadedBy) recipientIds.add(ticket.createdBy);
+    if (ticket.assignedTo && ticket.assignedTo !== uploadedBy) recipientIds.add(ticket.assignedTo);
+
+    if (recipientIds.size === 0) return;
+
+    const recipients = await db
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+      .from(users)
+      .where(inArray(users.id, [...recipientIds]));
+
+    const emailProvider = getEmailProvider();
+    const ticketUrl = getTicketUrl(ticket.id);
+
+    for (const recipient of recipients) {
+      // Don't send to clients if ticket is not visible
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
+
+      const emailData = buildTicketAttachmentEmail({
+        recipientName: recipient.name,
+        ticketCode: ticket.code,
+        ticketTitle: ticket.title,
+        uploaderName: uploader.name,
+        fileName,
+        ticketUrl,
+      });
+
+      await emailProvider.send({
+        to: recipient.email,
+        subject: emailData.subject,
+        text: emailData.text,
+        html: emailData.html,
+      });
+    }
+
+    logger.info({ ticketId, uploadedBy, fileName }, 'Attachment notifications sent');
+  } catch (err) {
+    logger.error({ err, ticketId }, 'Failed to send attachment notifications');
   }
 }

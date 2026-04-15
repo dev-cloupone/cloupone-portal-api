@@ -5,7 +5,7 @@ import { deleteFile } from './file.service';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
-import { notifyTicketCreated, notifyTicketAssigned, notifyStatusChanged, notifyNewComment } from './ticket-notification.service';
+import { notifyTicketCreated, notifyTicketAssigned, notifyStatusChanged, notifyNewComment, notifyNewAttachment } from './ticket-notification.service';
 import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
@@ -597,7 +597,7 @@ export async function addAttachment(data: {
   const ticket = await getTicketById(data.ticketId, data.uploadedBy, data.userRole, data.userClientId);
   assertTicketEditable(ticket);
 
-  const [file] = await db.select({ id: files.id }).from(files).where(eq(files.id, data.fileId)).limit(1);
+  const [file] = await db.select({ id: files.id, originalName: files.originalName }).from(files).where(eq(files.id, data.fileId)).limit(1);
   if (!file) throw new AppError(MSG.FILE_NOT_FOUND, 404);
 
   const [attachment] = await db.insert(ticketAttachments).values({
@@ -607,6 +607,9 @@ export async function addAttachment(data: {
   }).returning();
 
   await recordHistory(data.ticketId, data.uploadedBy, 'attachment', null, 'Arquivo anexado');
+
+  // Fire-and-forget notification
+  notifyNewAttachment(data.ticketId, data.uploadedBy, file.originalName);
 
   return attachment;
 }
