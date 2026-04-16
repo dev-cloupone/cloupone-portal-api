@@ -1,6 +1,6 @@
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { tickets, ticketComments, users, projects, clients } from '../db/schema';
+import { tickets, ticketComments, users, projects, clients, projectAllocations } from '../db/schema';
 import { getEmailProvider } from '../providers/email';
 import { buildTicketCreatedEmail } from '../emails/ticket-created';
 import { buildTicketAssignedEmail } from '../emails/ticket-assigned';
@@ -53,14 +53,25 @@ export async function notifyTicketCreated(ticketId: string) {
     const creator = await getUserData(ticket.createdBy);
     if (!creator) return;
 
-    // Notify gestors and super_admins (except the creator)
-    const managers = await db
+    // Super admins always receive notifications
+    const superAdmins = await db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
-      .where(and(
-        or(eq(users.role, 'gestor'), eq(users.role, 'super_admin')),
-        eq(users.isActive, true),
-      ));
+      .where(and(eq(users.role, 'super_admin'), eq(users.isActive, true)));
+
+    // Gestors only receive if allocated to the ticket's project
+    const gestors = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .innerJoin(projectAllocations, and(
+        eq(projectAllocations.userId, users.id),
+        eq(projectAllocations.projectId, ticket.projectId),
+      ))
+      .where(and(eq(users.role, 'gestor'), eq(users.isActive, true)));
+
+    const managersMap = new Map<string, typeof superAdmins[0]>();
+    for (const u of [...superAdmins, ...gestors]) managersMap.set(u.id, u);
+    const managers = [...managersMap.values()];
 
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);

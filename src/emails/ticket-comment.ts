@@ -12,7 +12,7 @@ interface TicketCommentEmailParams {
 
 export function buildTicketCommentEmail({ recipientName, ticketCode, ticketTitle, commentAuthorName, commentPreview, ticketUrl }: TicketCommentEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `[${ticketCode}] Novo comentário: ${ticketTitle}`,
+    subject: `Cloup One | [${ticketCode}] Novo comentário: ${ticketTitle}`,
     text: [
       `Olá, ${recipientName}!`,
       '',

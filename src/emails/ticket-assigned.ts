@@ -12,7 +12,7 @@ interface TicketAssignedEmailParams {
 
 export function buildTicketAssignedEmail({ consultantName, ticketCode, ticketTitle, projectName, assignedByName, ticketUrl }: TicketAssignedEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `[${ticketCode}] Ticket atribuído a você: ${ticketTitle}`,
+    subject: `Cloup One | [${ticketCode}] Ticket atribuído a você: ${ticketTitle}`,
     text: [
       `Olá, ${consultantName}!`,
       '',

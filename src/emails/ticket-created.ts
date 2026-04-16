@@ -21,7 +21,7 @@ export function buildTicketCreatedEmail({ projectName, ticketCode, ticketTitle, 
   const typeLabel = TYPE_LABELS[ticketType] || ticketType;
 
   return {
-    subject: `[${ticketCode}] Novo ticket: ${ticketTitle}`,
+    subject: `Cloup One | [${ticketCode}] Novo ticket: ${ticketTitle}`,
     text: [
       `Novo ticket criado no projeto "${projectName}".`,
       '',

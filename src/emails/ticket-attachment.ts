@@ -12,7 +12,7 @@ interface TicketAttachmentEmailParams {
 
 export function buildTicketAttachmentEmail({ recipientName, ticketCode, ticketTitle, uploaderName, fileName, ticketUrl }: TicketAttachmentEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `[${ticketCode}] Novo anexo: ${ticketTitle}`,
+    subject: `Cloup One | [${ticketCode}] Novo anexo: ${ticketTitle}`,
     text: [
       `Olá, ${recipientName}!`,
       '',

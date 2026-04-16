@@ -24,7 +24,7 @@ export function buildTicketStatusChangedEmail({ recipientName, ticketCode, ticke
   const newLabel = STATUS_LABELS[newStatus] || newStatus;
 
   return {
-    subject: `[${ticketCode}] Status alterado: ${oldLabel} → ${newLabel}`,
+    subject: `Cloup One | [${ticketCode}] Status alterado: ${oldLabel} → ${newLabel}`,
     text: [
       `Olá, ${recipientName}!`,
       '',

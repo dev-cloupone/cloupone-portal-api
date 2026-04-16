@@ -10,7 +10,7 @@ interface PasswordResetEmailParams {
 
 export function buildPasswordResetEmail({ name, resetUrl, expiryMinutes }: PasswordResetEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: 'Redefinição de senha',
+    subject: 'Cloup One | Redefinição de senha',
     text: [
       `Olá, ${name}!`,
       '',

@@ -11,7 +11,7 @@ interface WelcomeEmailParams {
 
 export function buildWelcomeEmail({ name, email, tempPassword, appName, loginUrl }: WelcomeEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `Bem-vindo(a) ao ${appName}`,
+    subject: `Cloup One | Bem-vindo(a)`,
     text: [
       `Olá, ${name}!`,
       '',

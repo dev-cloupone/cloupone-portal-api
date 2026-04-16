@@ -9,7 +9,7 @@ interface WelcomeSelfRegisterEmailParams {
 
 export function buildWelcomeSelfRegisterEmail({ name, appName, loginUrl }: WelcomeSelfRegisterEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `Bem-vindo(a) ao ${appName}`,
+    subject: `Cloup One | Bem-vindo(a)`,
     text: [
       `Olá, ${name}!`,
       '',

@@ -9,7 +9,7 @@ interface PasswordChangedEmailParams {
 
 export function buildPasswordChangedEmail({ name, appName, timestamp }: PasswordChangedEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `Senha alterada - ${appName}`,
+    subject: `Cloup One | Senha alterada`,
     text: [
       `Olá, ${name}!`,
       '',
