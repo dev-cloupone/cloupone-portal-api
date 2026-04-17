@@ -79,8 +79,8 @@ export async function createConsultant(data: { userId: string; hourlyRate: numbe
       allowOverlappingEntries: data.allowOverlappingEntries ?? false,
     }).returning();
 
-    // Update role to 'consultor' if currently 'user' (gestor mantém seu role)
-    if (user.role === 'user') {
+    // Update role to 'consultor' if currently 'client' (gestor mantém seu role)
+    if (user.role === 'client') {
       await tx.update(users)
         .set({ role: 'consultor', updatedAt: new Date() })
         .where(eq(users.id, data.userId));

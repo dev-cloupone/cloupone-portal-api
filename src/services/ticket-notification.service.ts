@@ -1,11 +1,12 @@
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { tickets, ticketComments, users, projects, clients } from '../db/schema';
+import { tickets, ticketComments, users, projects, clients, projectAllocations } from '../db/schema';
 import { getEmailProvider } from '../providers/email';
 import { buildTicketCreatedEmail } from '../emails/ticket-created';
 import { buildTicketAssignedEmail } from '../emails/ticket-assigned';
 import { buildTicketStatusChangedEmail } from '../emails/ticket-status-changed';
 import { buildTicketCommentEmail } from '../emails/ticket-comment';
+import { buildTicketAttachmentEmail } from '../emails/ticket-attachment';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -52,14 +53,25 @@ export async function notifyTicketCreated(ticketId: string) {
     const creator = await getUserData(ticket.createdBy);
     if (!creator) return;
 
-    // Notify gestors and super_admins (except the creator)
-    const managers = await db
+    // Super admins always receive notifications
+    const superAdmins = await db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
-      .where(and(
-        or(eq(users.role, 'gestor'), eq(users.role, 'super_admin')),
-        eq(users.isActive, true),
-      ));
+      .where(and(eq(users.role, 'super_admin'), eq(users.isActive, true)));
+
+    // Gestors only receive if allocated to the ticket's project
+    const gestors = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .innerJoin(projectAllocations, and(
+        eq(projectAllocations.userId, users.id),
+        eq(projectAllocations.projectId, ticket.projectId),
+      ))
+      .where(and(eq(users.role, 'gestor'), eq(users.isActive, true)));
+
+    const managersMap = new Map<string, typeof superAdmins[0]>();
+    for (const u of [...superAdmins, ...gestors]) managersMap.set(u.id, u);
+    const managers = [...managersMap.values()];
 
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);
@@ -149,7 +161,7 @@ export async function notifyStatusChanged(ticketId: string, oldStatus: string, n
 
     for (const recipient of recipients) {
       // Don't send to clients if ticket is not visible
-      if (recipient.role === 'user' && !ticket.isVisibleToClient) continue;
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
       const emailData = buildTicketStatusChangedEmail({
         recipientName: recipient.name,
@@ -212,9 +224,9 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
 
     for (const recipient of recipients) {
       // Internal comments: don't send to clients
-      if (isInternal && recipient.role === 'user') continue;
+      if (isInternal && recipient.role === 'client') continue;
       // Ticket not visible: don't send to clients
-      if (recipient.role === 'user' && !ticket.isVisibleToClient) continue;
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
       const emailData = buildTicketCommentEmail({
         recipientName: recipient.name,
@@ -236,5 +248,54 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
     logger.info({ ticketId, commentId, isInternal }, 'Comment notifications sent');
   } catch (err) {
     logger.error({ err, ticketId, commentId }, 'Failed to send comment notifications');
+  }
+}
+
+export async function notifyNewAttachment(ticketId: string, uploadedBy: string, fileName: string) {
+  try {
+    const ticket = await getTicketData(ticketId);
+    if (!ticket) return;
+
+    const uploader = await getUserData(uploadedBy);
+    if (!uploader) return;
+
+    const recipientIds = new Set<string>();
+    if (ticket.createdBy !== uploadedBy) recipientIds.add(ticket.createdBy);
+    if (ticket.assignedTo && ticket.assignedTo !== uploadedBy) recipientIds.add(ticket.assignedTo);
+
+    if (recipientIds.size === 0) return;
+
+    const recipients = await db
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+      .from(users)
+      .where(inArray(users.id, [...recipientIds]));
+
+    const emailProvider = getEmailProvider();
+    const ticketUrl = getTicketUrl(ticket.id);
+
+    for (const recipient of recipients) {
+      // Don't send to clients if ticket is not visible
+      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
+
+      const emailData = buildTicketAttachmentEmail({
+        recipientName: recipient.name,
+        ticketCode: ticket.code,
+        ticketTitle: ticket.title,
+        uploaderName: uploader.name,
+        fileName,
+        ticketUrl,
+      });
+
+      await emailProvider.send({
+        to: recipient.email,
+        subject: emailData.subject,
+        text: emailData.text,
+        html: emailData.html,
+      });
+    }
+
+    logger.info({ ticketId, uploadedBy, fileName }, 'Attachment notifications sent');
+  } catch (err) {
+    logger.error({ err, ticketId }, 'Failed to send attachment notifications');
   }
 }

@@ -1,6 +1,6 @@
 export interface JwtPayload {
   userId: string;
-  role: 'super_admin' | 'gestor' | 'consultor' | 'user';
+  role: 'super_admin' | 'gestor' | 'consultor' | 'client';
   clientId?: string | null;
 }
 

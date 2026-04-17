@@ -37,8 +37,8 @@ const addAllocationSchema = z.object({
 const list: RequestHandler = async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
-    // Users with role 'user' can only see projects from their own client
-    const clientId = req.userRole === 'user' ? req.userClientId ?? undefined : req.query.clientId as string | undefined;
+    // Users with role 'client' can only see projects from their own client
+    const clientId = req.userRole === 'client' ? req.userClientId ?? undefined : req.query.clientId as string | undefined;
     const status = req.query.status as string | undefined;
     const result = await projectService.listProjects({ page, limit, clientId, status, userId: req.userId, userRole: req.userRole });
     res.json(result);

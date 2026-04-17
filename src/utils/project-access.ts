@@ -12,7 +12,7 @@ const MSG = {
  * - super_admin: acesso irrestrito
  * - gestor: precisa de registro em project_allocations
  * - consultor: precisa de registro em project_allocations
- * - user: precisa que o projeto pertença ao seu client
+ * - client: precisa que o projeto pertença ao seu client
  */
 export async function assertUserHasProjectAccess(
   userId: string,
@@ -35,7 +35,7 @@ export async function assertUserHasProjectAccess(
     return;
   }
 
-  // role 'user' — verifica clientId
+  // role 'client' — verifica clientId
   if (!userClientId) throw new AppError(MSG.NO_ACCESS, 403);
   const [project] = await db
     .select({ clientId: projects.clientId })

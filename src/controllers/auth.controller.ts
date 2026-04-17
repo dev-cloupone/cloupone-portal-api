@@ -154,7 +154,7 @@ const register: RequestHandler = async (req, res, next) => {
         name: parsed.name,
         email: parsed.email,
         passwordHash,
-        role: 'user',
+        role: 'client',
         isActive: true,
         mustChangePassword: false,
       })

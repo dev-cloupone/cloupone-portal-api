@@ -4,7 +4,7 @@ import { expenses, expenseComments, expenseCategories, projects, projectAllocati
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
-import * as expenseNotification from './expense-notification.service';
+
 import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
@@ -409,23 +409,6 @@ export async function submitWeek(userId: string, weekStartDate: string) {
     warnings,
   };
 
-  // Notify managers if there are pending approvals (fire-and-forget)
-  if (pendingApprovalCount > 0) {
-    const pendingTotal = draftExpenses
-      .filter(e => {
-        const cat = e.expenseCategoryId ? categoriesMap.get(e.expenseCategoryId) : null;
-        if (!cat || !cat.maxAmount) return true;
-        const withinBudget = Number(e.amount) <= Number(cat.maxAmount);
-        const hasReceipt = !!e.receiptFileId || !cat.requiresReceipt;
-        return !(withinBudget && hasReceipt);
-      })
-      .reduce((sum, e) => sum + Number(e.amount), 0);
-
-    void expenseNotification.notifyExpensesSubmitted(
-      userId, weekStartDate, weekEnd, pendingApprovalCount, pendingTotal,
-    );
-  }
-
   return result;
 }
 
@@ -523,9 +506,6 @@ export async function approveExpenses(ids: string[], approvedByUserId: string) {
     updatedAt: now,
   }).where(inArray(expenses.id, ids));
 
-  // Notify consultant(s) (fire-and-forget)
-  void expenseNotification.notifyExpenseApproved(ids, approvedByUserId);
-
   return { approved: ids.length };
 }
 
@@ -549,8 +529,6 @@ export async function rejectExpense(expenseId: string, rejectedByUserId: string,
     });
   });
 
-  // Notify consultant (fire-and-forget)
-  void expenseNotification.notifyExpenseRejected(expenseId, rejectedByUserId, comment);
 }
 
 // --- Reimbursement (Phase 5, but included in service for completeness) ---
@@ -630,9 +608,6 @@ export async function markAsReimbursed(ids: string[], reimbursedByUserId: string
     reimbursedBy: reimbursedByUserId,
     updatedAt: now,
   }).where(inArray(expenses.id, ids));
-
-  // Notify consultant(s) (fire-and-forget)
-  void expenseNotification.notifyReimbursementPaid(ids, reimbursedByUserId);
 
   return { reimbursed: ids.length };
 }

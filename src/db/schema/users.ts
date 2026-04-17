@@ -1,14 +1,14 @@
 import { pgTable, uuid, varchar, boolean, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
 import { clients } from './clients';
 
-export const userRoleEnum = pgEnum('user_role', ['super_admin', 'gestor', 'consultor', 'user']);
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'gestor', 'consultor', 'client']);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   name: varchar('name', { length: 200 }).notNull(),
-  role: userRoleEnum('role').default('user').notNull(),
+  role: userRoleEnum('role').default('client').notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   mustChangePassword: boolean('must_change_password').default(false).notNull(),
   avatarFileId: uuid('avatar_file_id'),
