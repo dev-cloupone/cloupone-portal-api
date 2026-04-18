@@ -24,7 +24,7 @@ const idSchema = z.string().uuid();
 
 const getMonthEntries: RequestHandler = async (req, res, next) => {
   try {
-    const date = z.string().regex(monthRegex, 'Formato invalido. Use YYYY-MM').parse(req.query.date);
+    const date = z.string().regex(monthRegex, 'Formato inválido. Use YYYY-MM').parse(req.query.date);
     const result = await timeEntryService.getMonthEntries(req.userId!, date);
     res.json(result);
   } catch (err) {

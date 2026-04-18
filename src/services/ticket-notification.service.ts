@@ -53,14 +53,8 @@ export async function notifyTicketCreated(ticketId: string) {
     const creator = await getUserData(ticket.createdBy);
     if (!creator) return;
 
-    // Super admins always receive notifications
-    const superAdmins = await db
-      .select({ id: users.id, name: users.name, email: users.email })
-      .from(users)
-      .where(and(eq(users.role, 'super_admin'), eq(users.isActive, true)));
-
-    // Gestors only receive if allocated to the ticket's project
-    const gestors = await db
+    // Only gestors allocated to the ticket's project receive notifications
+    const managers = await db
       .select({ id: users.id, name: users.name, email: users.email })
       .from(users)
       .innerJoin(projectAllocations, and(
@@ -68,10 +62,6 @@ export async function notifyTicketCreated(ticketId: string) {
         eq(projectAllocations.projectId, ticket.projectId),
       ))
       .where(and(eq(users.role, 'gestor'), eq(users.isActive, true)));
-
-    const managersMap = new Map<string, typeof superAdmins[0]>();
-    for (const u of [...superAdmins, ...gestors]) managersMap.set(u.id, u);
-    const managers = [...managersMap.values()];
 
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);

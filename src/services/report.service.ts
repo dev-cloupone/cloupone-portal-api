@@ -107,7 +107,7 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
       { text: 'Data', style: 'tableHeader' },
       { text: 'Consultor', style: 'tableHeader' },
       { text: 'Atividade', style: 'tableHeader' },
-      { text: 'Descricao', style: 'tableHeader' },
+      { text: 'Descrição', style: 'tableHeader' },
       { text: 'Horas', style: 'tableHeader', alignment: 'right' },
     ],
     ...data.entries.map((e) => [
@@ -180,7 +180,7 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
               { text: 'Data', style: 'tableHeader' },
               { text: 'Consultor', style: 'tableHeader' },
               { text: 'Categoria', style: 'tableHeader' },
-              { text: 'Descricao', style: 'tableHeader' },
+              { text: 'Descrição', style: 'tableHeader' },
               { text: 'Valor', style: 'tableHeader', alignment: 'right' },
             ],
             ...expenseEntries.map((e) => [
@@ -527,7 +527,7 @@ export async function generateClientCsv(clientId: string, from: string, to: stri
 
   // Hours section
   lines.push('Horas');
-  lines.push('Data;Consultor;Atividade;Descricao;Horas');
+  lines.push('Data;Consultor;Atividade;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
@@ -553,7 +553,7 @@ export async function generateClientCsv(clientId: string, from: string, to: stri
     const expenseTotal = expenseEntries.reduce((s, e) => s + Number(e.amount), 0);
     lines.push('');
     lines.push('Despesas');
-    lines.push('Data;Consultor;Categoria;Descricao;Valor');
+    lines.push('Data;Consultor;Categoria;Descrição;Valor');
     for (const e of expenseEntries) {
       lines.push([
         formatDate(e.date),
@@ -821,7 +821,7 @@ export async function generateConsultantPdf(
           { text: 'Data', style: 'tableHeader' },
           { text: 'Ticket', style: 'tableHeader' },
           { text: 'Atividade', style: 'tableHeader' },
-          { text: 'Descricao', style: 'tableHeader' },
+          { text: 'Descrição', style: 'tableHeader' },
           { text: 'Horas', style: 'tableHeader', alignment: 'right' },
         ],
         ...projEntries.map((e) => [
@@ -917,7 +917,7 @@ export async function generateConsultantCsv(
 
   // Section 2 - Detail
   lines.push('Detalhamento');
-  lines.push('Data;Projeto;Ticket;Atividade;Billable;Descricao;Horas');
+  lines.push('Data;Projeto;Ticket;Atividade;Billable;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
@@ -1352,7 +1352,7 @@ export async function generateEnhancedClientCsv(
 
   // Section 3 - Detailed hours
   lines.push('Horas Detalhadas');
-  lines.push('Data;Consultor;Projeto;Ticket;Atividade;Descricao;Horas');
+  lines.push('Data;Consultor;Projeto;Ticket;Atividade;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
@@ -1524,7 +1524,7 @@ export async function generateExpensePdf(
             { text: 'Consultor', style: 'tableHeader' },
             { text: 'Projeto', style: 'tableHeader' },
             { text: 'Categoria', style: 'tableHeader' },
-            { text: 'Descricao', style: 'tableHeader' },
+            { text: 'Descrição', style: 'tableHeader' },
             { text: 'Valor', style: 'tableHeader', alignment: 'right' },
           ],
           ...data.entries.map((e) => [
@@ -1605,7 +1605,7 @@ export async function generateExpenseCsv(
 
   // Detail
   lines.push('Detalhamento');
-  lines.push('Data;Consultor;Projeto;Cliente;Categoria;Descricao;Valor;Reembolso;Reembolsado');
+  lines.push('Data;Consultor;Projeto;Cliente;Categoria;Descrição;Valor;Reembolso;Reembolsado');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
