@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { db } from './index';
-import { users, platformSettings, activityCategories, expenseCategories } from './schema';
+import { users, platformSettings, expenseCategoryTemplates } from './schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
@@ -44,37 +44,20 @@ async function seed() {
   ]).onConflictDoNothing();
   logger.info('Platform settings seeded');
 
-  // Seed activity categories
-  const defaultCategories = [
-    { name: 'Desenvolvimento', description: 'Codificação e implementação', isBillable: true, sortOrder: 1 },
-    { name: 'Reunião', description: 'Reuniões com cliente ou internas', isBillable: true, sortOrder: 2 },
-    { name: 'Análise', description: 'Análise de requisitos e documentação', isBillable: true, sortOrder: 3 },
-    { name: 'Suporte', description: 'Suporte técnico e troubleshooting', isBillable: true, sortOrder: 4 },
-    { name: 'Documentação', description: 'Criação e atualização de documentação', isBillable: true, sortOrder: 5 },
-    { name: 'Code Review', description: 'Revisão de código', isBillable: true, sortOrder: 6 },
-    { name: 'Treinamento', description: 'Treinamento e capacitação', isBillable: false, sortOrder: 7 },
-    { name: 'Administrativo', description: 'Tarefas administrativas internas', isBillable: false, sortOrder: 8 },
-  ];
-
-  for (const cat of defaultCategories) {
-    await db.insert(activityCategories).values(cat).onConflictDoNothing();
-  }
-  logger.info('Activity categories seeded');
-
   // Seed expense categories
   const defaultExpenseCategories = [
-    { name: 'Alimentação', maxAmount: '80.00', requiresReceipt: true, sortOrder: 1 },
-    { name: 'Transporte', maxAmount: '100.00', requiresReceipt: true, sortOrder: 2 },
-    { name: 'Hospedagem', maxAmount: '400.00', requiresReceipt: true, sortOrder: 3 },
-    { name: 'Passagem Aérea', maxAmount: '2000.00', requiresReceipt: true, sortOrder: 4 },
-    { name: 'Material de Escritório', maxAmount: '200.00', requiresReceipt: true, sortOrder: 5 },
-    { name: 'Estacionamento', maxAmount: '50.00', requiresReceipt: false, sortOrder: 6 },
-    { name: 'Combustível', maxAmount: '150.00', requiresReceipt: true, sortOrder: 7 },
-    { name: 'Outros', maxAmount: '100.00', requiresReceipt: true, sortOrder: 8 },
+    { name: 'Alimentação', defaultMaxAmount: '80.00', requiresReceipt: true },
+    { name: 'Transporte', defaultMaxAmount: '100.00', requiresReceipt: true },
+    { name: 'Hospedagem', defaultMaxAmount: '400.00', requiresReceipt: true },
+    { name: 'Passagem Aérea', defaultMaxAmount: '2000.00', requiresReceipt: true },
+    { name: 'Material de Escritório', defaultMaxAmount: '200.00', requiresReceipt: true },
+    { name: 'Estacionamento', defaultMaxAmount: '50.00', requiresReceipt: false },
+    { name: 'Combustível', defaultMaxAmount: '150.00', requiresReceipt: true },
+    { name: 'Outros', defaultMaxAmount: '100.00', requiresReceipt: true },
   ];
 
   for (const cat of defaultExpenseCategories) {
-    await db.insert(expenseCategories).values(cat).onConflictDoNothing();
+    await db.insert(expenseCategoryTemplates).values(cat).onConflictDoNothing();
   }
   logger.info('Expense categories seeded');
 

@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
-import { expenseTemplates, expenseCategories } from '../db/schema';
+import { expenseTemplates, expenseCategoryTemplates } from '../db/schema';
 import { AppError } from '../utils/app-error';
 
 const MSG = {
@@ -13,13 +13,13 @@ export async function listTemplates(userId: string) {
     id: expenseTemplates.id,
     name: expenseTemplates.name,
     expenseCategoryId: expenseTemplates.expenseCategoryId,
-    categoryName: expenseCategories.name,
+    categoryName: expenseCategoryTemplates.name,
     description: expenseTemplates.description,
     amount: expenseTemplates.amount,
     requiresReimbursement: expenseTemplates.requiresReimbursement,
   })
     .from(expenseTemplates)
-    .leftJoin(expenseCategories, eq(expenseTemplates.expenseCategoryId, expenseCategories.id))
+    .leftJoin(expenseCategoryTemplates, eq(expenseTemplates.expenseCategoryId, expenseCategoryTemplates.id))
     .where(eq(expenseTemplates.userId, userId));
 
   return rows;

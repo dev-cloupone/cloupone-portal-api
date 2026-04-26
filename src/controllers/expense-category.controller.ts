@@ -8,9 +8,10 @@ const idSchema = z.string().uuid();
 const createCategorySchema = z.object({
   name: z.string().min(1, V.required('Nome')).max(100, V.max('Nome', 100)),
   description: z.string().max(255, V.max('Descrição', 255)).optional(),
-  maxAmount: z.string().optional(),
+  defaultMaxAmount: z.string().optional(),
+  defaultKmRate: z.string().optional(),
   requiresReceipt: z.boolean().optional(),
-  sortOrder: z.number().int(V.integer).optional(),
+  isKmCategory: z.boolean().optional(),
 });
 
 const updateCategorySchema = createCategorySchema.partial();
@@ -62,4 +63,13 @@ const deactivate: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const expenseCategoryController = { list, getById, create, update, deactivate };
+const reactivate: RequestHandler = async (req, res, next) => {
+  try {
+    const category = await categoryService.reactivateCategory(idSchema.parse(req.params.id));
+    res.json(category);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const expenseCategoryController = { list, getById, create, update, deactivate, reactivate };

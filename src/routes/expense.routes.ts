@@ -12,7 +12,6 @@ router.use(auth, authenticatedRateLimit);
 router.get('/month', expenseController.getMonthExpenses);
 router.get('/week', expenseController.getWeekExpenses);
 router.post('/', expenseController.upsert);
-router.post('/submit-week', expenseController.submitWeek);
 router.post('/:id/resubmit', expenseController.resubmit);
 router.delete('/:id', expenseController.remove);
 
@@ -20,6 +19,7 @@ router.delete('/:id', expenseController.remove);
 router.get('/pending', authorize('super_admin', 'gestor'), expenseController.listPending);
 router.post('/approve', authorize('super_admin', 'gestor'), expenseController.approve);
 router.post('/:id/reject', authorize('super_admin', 'gestor'), expenseController.reject);
+router.post('/:id/revert', authorize('super_admin', 'gestor'), expenseController.revert);
 
 // Gestor/Admin endpoints (Phase 5: Reimbursements)
 router.get('/reimbursements', authorize('super_admin', 'gestor'), expenseController.listReimbursements);

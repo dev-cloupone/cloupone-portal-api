@@ -213,9 +213,51 @@ const expenseCsv: RequestHandler = async (req, res, next) => {
   }
 };
 
+// Weekly Expense Report (V2)
+
+const weeklyExpenseSchema = z.object({
+  projectId: z.string().uuid(),
+  weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const weeklyExpenseData: RequestHandler = async (req, res, next) => {
+  try {
+    const { projectId, weekStart } = weeklyExpenseSchema.parse(req.query);
+    const filters = {
+      consultantId: req.query.consultantId as string | undefined,
+      categoryId: req.query.categoryId as string | undefined,
+      status: req.query.status as string | undefined,
+      reimbursementStatus: req.query.reimbursementStatus as string | undefined,
+    };
+    const data = await reportService.getWeeklyExpenseReport(projectId, weekStart, filters);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const weeklyExpenseCsv: RequestHandler = async (req, res, next) => {
+  try {
+    const { projectId, weekStart } = weeklyExpenseSchema.parse(req.query);
+    const filters = {
+      consultantId: req.query.consultantId as string | undefined,
+      categoryId: req.query.categoryId as string | undefined,
+      status: req.query.status as string | undefined,
+      reimbursementStatus: req.query.reimbursementStatus as string | undefined,
+    };
+    const csv = await reportService.generateWeeklyExpenseCsv(projectId, weekStart, filters);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=despesas-semanal-${weekStart}.csv`);
+    res.send('\uFEFF' + csv);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const reportController = {
   clientPdf, clientCsv, billing, payroll, clientData,
   consultantData, consultantPdf, consultantCsv,
   enhancedClientData, enhancedClientPdf, enhancedClientCsv,
   expenseData, expensePdf, expenseCsv,
+  weeklyExpenseData, weeklyExpenseCsv,
 };

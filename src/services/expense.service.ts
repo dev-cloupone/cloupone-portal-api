@@ -1,27 +1,32 @@
-import { eq, and, between, count as drizzleCount, desc, asc, inArray, sql } from 'drizzle-orm';
+import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { expenses, expenseComments, expenseCategories, projects, projectAllocations, users, clients, files } from '../db/schema';
+import { expenses, expenseComments, projectExpenseCategories, projects, projectAllocations, users, clients, files } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 
 import { assertUserHasProjectAccess } from '../utils/project-access';
+import { isDateInOpenPeriod } from './project-expense-period.service';
 
 const MSG = {
   NOT_FOUND: 'Despesa não encontrada.',
   NOT_OWNER: 'Você não pode editar despesas de outro usuário.',
-  NOT_DRAFT: 'Apenas despesas em rascunho podem ser excluídas.',
-  NOT_DRAFT_OR_REJECTED: 'Apenas despesas em rascunho ou rejeitadas podem ser editadas.',
+  NOT_CREATED: 'Apenas despesas criadas podem ser excluídas.',
+  NOT_CREATED_OR_REJECTED: 'Despesas aprovadas não podem ser editadas.',
   NOT_REJECTED: 'Apenas despesas rejeitadas podem ser resubmetidas.',
-  NOT_SUBMITTED: 'Apenas despesas submetidas podem ser aprovadas ou rejeitadas.',
+  NOT_PENDING: 'Apenas despesas pendentes podem ser aprovadas ou rejeitadas.',
   NOT_ALLOCATED: 'Consultor não está alocado neste projeto.',
-  NO_ENTRIES: 'Nenhuma despesa em rascunho encontrada para submeter nesta semana.',
   COMMENT_REQUIRED: 'Comentário é obrigatório ao rejeitar uma despesa.',
   PROJECT_NOT_FOUND: 'Projeto não encontrado ou inativo.',
   CATEGORY_NOT_FOUND: 'Categoria não encontrada ou inativa.',
   NOT_APPROVED_REIMBURSABLE: 'Apenas despesas aprovadas com reembolso pendente podem ser marcadas como reembolsadas.',
   ALREADY_REIMBURSED: 'Despesa já foi reembolsada.',
   NOT_REIMBURSED: 'Despesa não está marcada como reembolsada.',
+  PERIOD_NOT_OPEN: 'Esta data não está em um período aberto para lançamento de despesas.',
+  KM_QUANTITY_REQUIRED: 'Quantidade de KM é obrigatória para esta categoria.',
+  CATEGORY_NOT_IN_PROJECT: 'Esta categoria não está disponível neste projeto.',
+  RECEIPT_REQUIRED: 'Esta categoria exige comprovante. Anexe um comprovante antes de salvar.',
+  CANNOT_EDIT_REIMBURSEMENT: 'Consultor não pode alterar a marcação de reembolso após a criação.',
 } as const;
 
 // --- Week utility functions (Sunday-Saturday cycle) ---
@@ -50,12 +55,17 @@ const expenseSelectFields = {
   createdByUserId: expenses.createdByUserId,
   consultantUserId: expenses.consultantUserId,
   expenseCategoryId: expenses.expenseCategoryId,
-  categoryName: expenseCategories.name,
-  categoryMaxAmount: expenseCategories.maxAmount,
-  categoryRequiresReceipt: expenseCategories.requiresReceipt,
+  categoryName: projectExpenseCategories.name,
+  categoryMaxAmount: projectExpenseCategories.maxAmount,
+  categoryRequiresReceipt: projectExpenseCategories.requiresReceipt,
+  categoryKmRate: projectExpenseCategories.kmRate,
+  categoryIsKmCategory: projectExpenseCategories.isKmCategory,
   date: expenses.date,
   description: expenses.description,
   amount: expenses.amount,
+  kmQuantity: expenses.kmQuantity,
+  clientChargeAmount: expenses.clientChargeAmount,
+  clientChargeAmountManuallySet: expenses.clientChargeAmountManuallySet,
   receiptFileId: expenses.receiptFileId,
   receiptUrl: files.url,
   requiresReimbursement: expenses.requiresReimbursement,
@@ -66,6 +76,8 @@ const expenseSelectFields = {
   approvedBy: expenses.approvedBy,
   reimbursedAt: expenses.reimbursedAt,
   reimbursedBy: expenses.reimbursedBy,
+  revertedBy: expenses.revertedBy,
+  revertedAt: expenses.revertedAt,
   templateId: expenses.templateId,
   createdAt: expenses.createdAt,
   updatedAt: expenses.updatedAt,
@@ -77,7 +89,7 @@ function buildExpenseQuery() {
     .from(expenses)
     .leftJoin(projects, eq(expenses.projectId, projects.id))
     .leftJoin(clients, eq(projects.clientId, clients.id))
-    .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+    .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
     .leftJoin(files, eq(expenses.receiptFileId, files.id));
 }
 
@@ -102,14 +114,15 @@ async function fetchRejectionComments(expenseIds: string[]): Promise<Record<stri
   return commentsMap;
 }
 
-async function fetchCreatedByNames(expenseRows: { createdByUserId: string; consultantUserId: string | null }[]): Promise<{ createdByMap: Record<string, string>; consultantMap: Record<string, string> }> {
+async function fetchCreatedByNames(expenseRows: { createdByUserId: string; consultantUserId: string | null; revertedBy: string | null }[]): Promise<{ createdByMap: Record<string, string>; consultantMap: Record<string, string>; revertedByMap: Record<string, string> }> {
   const userIds = new Set<string>();
   for (const row of expenseRows) {
     userIds.add(row.createdByUserId);
     if (row.consultantUserId) userIds.add(row.consultantUserId);
+    if (row.revertedBy) userIds.add(row.revertedBy);
   }
 
-  if (userIds.size === 0) return { createdByMap: {}, consultantMap: {} };
+  if (userIds.size === 0) return { createdByMap: {}, consultantMap: {}, revertedByMap: {} };
 
   const userRows = await db
     .select({ id: users.id, name: users.name })
@@ -123,39 +136,76 @@ async function fetchCreatedByNames(expenseRows: { createdByUserId: string; consu
 
   const createdByMap: Record<string, string> = {};
   const consultantMap: Record<string, string> = {};
+  const revertedByMap: Record<string, string> = {};
   for (const row of expenseRows) {
     createdByMap[row.createdByUserId] = nameMap[row.createdByUserId] ?? '';
     if (row.consultantUserId) {
       consultantMap[row.consultantUserId] = nameMap[row.consultantUserId] ?? '';
     }
+    if (row.revertedBy) {
+      revertedByMap[row.revertedBy] = nameMap[row.revertedBy] ?? '';
+    }
   }
 
-  return { createdByMap, consultantMap };
+  return { createdByMap, consultantMap, revertedByMap };
 }
 
 // --- Core functions ---
 
-export async function getMonthExpenses(userId: string, year: number, month: number) {
+export async function getMonthExpenses(
+  userId: string,
+  userRole: string,
+  year: number,
+  month: number,
+  consultantUserId?: string,
+  projectId?: string,
+) {
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
   const firstDayStr = firstDay.toISOString().split('T')[0];
   const lastDayStr = lastDay.toISOString().split('T')[0];
 
+  const conditions = [between(expenses.date, firstDayStr, lastDayStr)];
+
+  if (consultantUserId && projectId) {
+    // Consultant-scoped mode: gestor/admin viewing a specific consultant's expenses in a project
+    if (userRole === 'consultor') {
+      throw new AppError('Consultores não podem visualizar despesas de outros.', 403);
+    }
+    if (userRole === 'gestor') {
+      // Validate gestor has access to this project
+      const [alloc] = await db
+        .select()
+        .from(projectAllocations)
+        .where(and(
+          eq(projectAllocations.userId, userId),
+          eq(projectAllocations.projectId, projectId),
+        ))
+        .limit(1);
+      if (!alloc) throw new AppError('Sem acesso a este projeto.', 403);
+    }
+    conditions.push(eq(expenses.consultantUserId, consultantUserId));
+    conditions.push(eq(expenses.projectId, projectId));
+  } else {
+    // Normal mode: "Minhas despesas" — only the user's own expenses
+    // For gestors/admins: exclude expenses they created on behalf of other consultants
+    conditions.push(eq(expenses.createdByUserId, userId));
+    conditions.push(or(isNull(expenses.consultantUserId), eq(expenses.consultantUserId, userId))!);
+  }
+
   const rows = await buildExpenseQuery()
-    .where(and(
-      eq(expenses.createdByUserId, userId),
-      between(expenses.date, firstDayStr, lastDayStr),
-    ))
+    .where(and(...conditions))
     .orderBy(asc(expenses.date), desc(expenses.createdAt));
 
   const rejectedIds = rows.filter(e => e.status === 'rejected').map(e => e.id);
   const commentsMap = await fetchRejectionComments(rejectedIds);
-  const { createdByMap, consultantMap } = await fetchCreatedByNames(rows);
+  const { createdByMap, consultantMap, revertedByMap } = await fetchCreatedByNames(rows);
 
   const entriesWithExtras = rows.map(e => ({
     ...e,
     createdByName: createdByMap[e.createdByUserId] ?? '',
     consultantName: e.consultantUserId ? (consultantMap[e.consultantUserId] ?? null) : null,
+    revertedByName: e.revertedBy ? (revertedByMap[e.revertedBy] ?? null) : null,
     rejectionComment: commentsMap[e.id] ?? null,
   }));
 
@@ -204,8 +254,11 @@ interface UpsertExpenseInput {
   consultantUserId?: string | null;
   expenseCategoryId?: string | null;
   date: string;
-  description: string;
+  description?: string | null;
   amount: string;
+  kmQuantity?: string | null;
+  clientChargeAmount?: string | null;
+  clientChargeAmountManuallySet?: boolean;
   receiptFileId?: string | null;
   requiresReimbursement?: boolean;
   templateId?: string | null;
@@ -222,6 +275,12 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
 
   // Validar acesso do gestor ao projeto
   await assertUserHasProjectAccess(requestUserId, requestUserRole, data.projectId);
+
+  // V2: Validate date is in an open period
+  const periodCheck = await isDateInOpenPeriod(data.projectId, data.date);
+  if (!periodCheck.allowed) {
+    throw new AppError(periodCheck.reason || MSG.PERIOD_NOT_OPEN, 400);
+  }
 
   // Determine consultant user id
   let consultantUserId: string | null = null;
@@ -244,15 +303,53 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     if (!allocation) throw new AppError(MSG.NOT_ALLOCATED, 400);
   }
 
-  // Validate category if provided
+  // V2: Validate category belongs to project (projectExpenseCategories)
+  let categoryData: { isKmCategory: boolean; kmRate: string | null; requiresReceipt: boolean } | null = null;
   if (data.expenseCategoryId) {
     const [category] = await db
-      .select({ id: expenseCategories.id, isActive: expenseCategories.isActive })
-      .from(expenseCategories)
-      .where(eq(expenseCategories.id, data.expenseCategoryId))
+      .select({
+        id: projectExpenseCategories.id,
+        isActive: projectExpenseCategories.isActive,
+        projectId: projectExpenseCategories.projectId,
+        isKmCategory: projectExpenseCategories.isKmCategory,
+        kmRate: projectExpenseCategories.kmRate,
+        requiresReceipt: projectExpenseCategories.requiresReceipt,
+      })
+      .from(projectExpenseCategories)
+      .where(eq(projectExpenseCategories.id, data.expenseCategoryId))
       .limit(1);
+
     if (!category || !category.isActive) throw new AppError(MSG.CATEGORY_NOT_FOUND, 400);
+    if (category.projectId !== data.projectId) throw new AppError(MSG.CATEGORY_NOT_IN_PROJECT, 400);
+    categoryData = { isKmCategory: category.isKmCategory, kmRate: category.kmRate, requiresReceipt: category.requiresReceipt };
+
+    // Validate receipt is provided when category requires it
+    if (category.requiresReceipt && !data.receiptFileId) {
+      throw new AppError(MSG.RECEIPT_REQUIRED, 400);
+    }
   }
+
+  // V2: KM calculation
+  let computedAmount = data.amount;
+  let kmQuantity = data.kmQuantity ?? null;
+  if (categoryData?.isKmCategory) {
+    if (!kmQuantity) throw new AppError(MSG.KM_QUANTITY_REQUIRED, 400);
+    if (categoryData.kmRate) {
+      computedAmount = (Number(kmQuantity) * Number(categoryData.kmRate)).toFixed(2);
+    }
+  }
+
+  // V2: client_charge_amount logic
+  const isGestorOrAdmin = requestUserRole === 'gestor' || requestUserRole === 'super_admin';
+  let clientChargeAmount = computedAmount;
+  let clientChargeAmountManuallySet = false;
+  if (isGestorOrAdmin && data.clientChargeAmount != null) {
+    clientChargeAmount = data.clientChargeAmount;
+    clientChargeAmountManuallySet = true;
+  }
+
+  // V2: requires_reimbursement defaults
+  const defaultReimbursement = requestUserRole === 'consultor';
 
   // Update path
   if (data.id) {
@@ -264,11 +361,25 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
 
     // Ownership check: creator or gestor+
-    if (existing.createdByUserId !== requestUserId && requestUserRole !== 'gestor' && requestUserRole !== 'super_admin') {
+    if (existing.createdByUserId !== requestUserId && !isGestorOrAdmin) {
       throw new AppError(MSG.NOT_OWNER, 403);
     }
-    if (existing.status !== 'draft' && existing.status !== 'rejected') {
-      throw new AppError(MSG.NOT_DRAFT_OR_REJECTED, 400);
+    if (existing.status === 'approved') {
+      throw new AppError(MSG.NOT_CREATED_OR_REJECTED, 400);
+    }
+
+    // V2: Consultant cannot change reimbursement after creation
+    if (requestUserRole === 'consultor' && data.requiresReimbursement !== undefined && data.requiresReimbursement !== existing.requiresReimbursement) {
+      throw new AppError(MSG.CANNOT_EDIT_REIMBURSEMENT, 400);
+    }
+
+    // V2: Recalculate client_charge if not manually set
+    if (!existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
+      clientChargeAmount = computedAmount;
+    } else if (existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
+      // Keep existing manual value
+      clientChargeAmount = existing.clientChargeAmount;
+      clientChargeAmountManuallySet = true;
     }
 
     const [updated] = await db.update(expenses).set({
@@ -276,17 +387,24 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       consultantUserId: consultantUserId,
       expenseCategoryId: data.expenseCategoryId ?? null,
       date: data.date,
-      description: data.description,
-      amount: data.amount,
+      description: data.description ?? null,
+      amount: computedAmount,
+      kmQuantity,
+      clientChargeAmount,
+      clientChargeAmountManuallySet,
       receiptFileId: data.receiptFileId ?? null,
-      requiresReimbursement: data.requiresReimbursement ?? false,
+      requiresReimbursement: data.requiresReimbursement ?? existing.requiresReimbursement,
       templateId: data.templateId ?? null,
-      status: 'draft',
+      status: 'created',
       updatedAt: new Date(),
     }).where(eq(expenses.id, data.id)).returning();
 
     return updated;
   }
+
+  // V2: Gestor/admin creating expense for consultant → auto-approved
+  const isCreatingForOther = isGestorOrAdmin && consultantUserId && consultantUserId !== requestUserId;
+  const initialStatus = isCreatingForOther ? 'approved' as const : 'created' as const;
 
   // Insert path
   const [created] = await db.insert(expenses).values({
@@ -295,11 +413,16 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     consultantUserId: consultantUserId,
     expenseCategoryId: data.expenseCategoryId ?? null,
     date: data.date,
-    description: data.description,
-    amount: data.amount,
+    description: data.description ?? null,
+    amount: computedAmount,
+    kmQuantity,
+    clientChargeAmount,
+    clientChargeAmountManuallySet,
     receiptFileId: data.receiptFileId ?? null,
-    requiresReimbursement: data.requiresReimbursement ?? (requestUserRole === 'consultor'),
+    requiresReimbursement: data.requiresReimbursement ?? defaultReimbursement,
     templateId: data.templateId ?? null,
+    status: initialStatus,
+    ...(isCreatingForOther ? { approvedAt: new Date(), approvedBy: requestUserId } : {}),
   }).returning();
 
   return created;
@@ -312,104 +435,9 @@ export async function deleteExpense(id: string, requestUserId: string, requestUs
   if (entry.createdByUserId !== requestUserId && requestUserRole !== 'gestor' && requestUserRole !== 'super_admin') {
     throw new AppError(MSG.NOT_OWNER, 403);
   }
-  if (entry.status !== 'draft') throw new AppError(MSG.NOT_DRAFT, 400);
+  if (!['created', 'draft'].includes(entry.status)) throw new AppError(MSG.NOT_CREATED, 400);
 
   await db.delete(expenses).where(eq(expenses.id, id));
-}
-
-// --- Submit week with auto-approval ---
-
-export async function submitWeek(userId: string, weekStartDate: string) {
-  const weekEnd = getWeekEndDate(weekStartDate);
-
-  const draftExpenses = await db
-    .select({
-      id: expenses.id,
-      amount: expenses.amount,
-      expenseCategoryId: expenses.expenseCategoryId,
-      receiptFileId: expenses.receiptFileId,
-    })
-    .from(expenses)
-    .where(and(
-      eq(expenses.createdByUserId, userId),
-      between(expenses.date, weekStartDate, weekEnd),
-      eq(expenses.status, 'draft'),
-    ));
-
-  if (draftExpenses.length === 0) throw new AppError(MSG.NO_ENTRIES, 400);
-
-  // Fetch categories for auto-approval check
-  const categoryIds = [...new Set(draftExpenses.map(e => e.expenseCategoryId).filter(Boolean))] as string[];
-  let categoriesMap = new Map<string, { maxAmount: string | null; requiresReceipt: boolean }>();
-
-  if (categoryIds.length > 0) {
-    const cats = await db
-      .select({
-        id: expenseCategories.id,
-        maxAmount: expenseCategories.maxAmount,
-        requiresReceipt: expenseCategories.requiresReceipt,
-      })
-      .from(expenseCategories)
-      .where(inArray(expenseCategories.id, categoryIds));
-
-    for (const c of cats) {
-      categoriesMap.set(c.id, { maxAmount: c.maxAmount, requiresReceipt: c.requiresReceipt });
-    }
-  }
-
-  const now = new Date();
-  let autoApprovedCount = 0;
-  let pendingApprovalCount = 0;
-  const warnings: string[] = [];
-
-  for (const expense of draftExpenses) {
-    const category = expense.expenseCategoryId ? categoriesMap.get(expense.expenseCategoryId) : null;
-
-    let canAutoApprove = false;
-    if (category && category.maxAmount) {
-      const withinBudget = Number(expense.amount) <= Number(category.maxAmount);
-      const hasReceipt = !!expense.receiptFileId || !category.requiresReceipt;
-      canAutoApprove = withinBudget && hasReceipt;
-    }
-
-    if (canAutoApprove) {
-      await db.update(expenses).set({
-        status: 'approved',
-        autoApproved: true,
-        submittedAt: now,
-        approvedAt: now,
-        updatedAt: now,
-      }).where(eq(expenses.id, expense.id));
-      autoApprovedCount++;
-    } else {
-      await db.update(expenses).set({
-        status: 'submitted',
-        submittedAt: now,
-        updatedAt: now,
-      }).where(eq(expenses.id, expense.id));
-      pendingApprovalCount++;
-
-      // Generate warning for why it wasn't auto-approved
-      if (!category) {
-        warnings.push(`Despesa sem categoria enviada para aprovação manual.`);
-      } else if (!category.maxAmount) {
-        warnings.push(`Categoria sem teto definido - enviada para aprovação manual.`);
-      } else if (Number(expense.amount) > Number(category.maxAmount)) {
-        warnings.push(`Despesa de R$ ${Number(expense.amount).toFixed(2)} acima do teto de R$ ${Number(category.maxAmount).toFixed(2)} - enviada para aprovação manual.`);
-      } else if (category.requiresReceipt && !expense.receiptFileId) {
-        warnings.push(`Despesa sem comprovante obrigatório - enviada para aprovação manual.`);
-      }
-    }
-  }
-
-  const result = {
-    submitted: draftExpenses.length,
-    autoApproved: autoApprovedCount,
-    pendingApproval: pendingApprovalCount,
-    warnings,
-  };
-
-  return result;
 }
 
 export async function resubmitExpense(id: string, requestUserId: string) {
@@ -418,55 +446,64 @@ export async function resubmitExpense(id: string, requestUserId: string) {
   if (expense.createdByUserId !== requestUserId) throw new AppError(MSG.NOT_OWNER, 403);
   if (expense.status !== 'rejected') throw new AppError(MSG.NOT_REJECTED, 400);
 
-  // Re-check auto-approval
-  let canAutoApprove = false;
-  if (expense.expenseCategoryId) {
-    const [category] = await db
-      .select({ maxAmount: expenseCategories.maxAmount, requiresReceipt: expenseCategories.requiresReceipt })
-      .from(expenseCategories)
-      .where(eq(expenseCategories.id, expense.expenseCategoryId))
-      .limit(1);
-
-    if (category && category.maxAmount) {
-      const withinBudget = Number(expense.amount) <= Number(category.maxAmount);
-      const hasReceipt = !!expense.receiptFileId || !category.requiresReceipt;
-      canAutoApprove = withinBudget && hasReceipt;
-    }
-  }
-
   const now = new Date();
-  if (canAutoApprove) {
-    const [updated] = await db.update(expenses).set({
-      status: 'approved',
-      autoApproved: true,
-      submittedAt: now,
-      approvedAt: now,
-      updatedAt: now,
-    }).where(eq(expenses.id, id)).returning();
-    return updated;
-  }
-
   const [updated] = await db.update(expenses).set({
-    status: 'submitted',
-    submittedAt: now,
+    status: 'created',
+    submittedAt: null,
     updatedAt: now,
   }).where(eq(expenses.id, id)).returning();
   return updated;
 }
 
+export async function revertExpense(id: string, requestUserId: string, requestUserRole: string) {
+  if (requestUserRole !== 'gestor' && requestUserRole !== 'super_admin') {
+    throw new AppError('Apenas gestores podem reverter despesas.', 403);
+  }
+
+  const [entry] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
+  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
+  if (entry.status !== 'approved') throw new AppError('Apenas despesas aprovadas podem ser revertidas.', 400);
+  if (entry.reimbursedAt) throw new AppError('Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', 400);
+
+  const now = new Date();
+  const [updated] = await db.update(expenses).set({
+    status: 'created',
+    approvedAt: null,
+    approvedBy: null,
+    revertedBy: requestUserId,
+    revertedAt: now,
+    updatedAt: now,
+  }).where(eq(expenses.id, id)).returning();
+
+  return updated;
+}
+
 // --- Approval / Rejection (Phase 4) ---
 
-export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string }) {
-  const { page, limit, consultantId, projectId } = params;
+export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string; requestUserId: string; requestUserRole: string }) {
+  const { page, limit, consultantId, projectId, requestUserId, requestUserRole } = params;
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(expenses.status, 'submitted')];
-  if (consultantId) conditions.push(eq(expenses.createdByUserId, consultantId));
+  const conditions = [inArray(expenses.status, ['created', 'submitted'])];
+  if (consultantId) conditions.push(eq(expenses.consultantUserId, consultantId));
   if (projectId) conditions.push(eq(expenses.projectId, projectId));
+
+  // Project access: gestor only sees expenses from allocated projects
+  if (requestUserRole !== 'super_admin') {
+    const allocs = await db
+      .select({ projectId: projectAllocations.projectId })
+      .from(projectAllocations)
+      .where(eq(projectAllocations.userId, requestUserId));
+    const projectIds = allocs.map(a => a.projectId);
+    if (projectIds.length === 0) {
+      return { data: [], meta: buildMeta(0, { page, limit }) };
+    }
+    conditions.push(inArray(expenses.projectId, projectIds));
+  }
 
   const where = and(...conditions);
 
-  const [data, [{ total }]] = await Promise.all([
+  const [rows, [{ total }]] = await Promise.all([
     db
       .select({
         ...expenseSelectFields,
@@ -476,7 +513,7 @@ export async function listPendingApprovals(params: PaginationParams & { consulta
       .from(expenses)
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(clients, eq(projects.clientId, clients.id))
-      .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+      .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
       .leftJoin(files, eq(expenses.receiptFileId, files.id))
       .leftJoin(users, eq(expenses.createdByUserId, users.id))
       .where(where)
@@ -486,25 +523,51 @@ export async function listPendingApprovals(params: PaginationParams & { consulta
     db.select({ total: drizzleCount() }).from(expenses).where(where),
   ]);
 
+  const { consultantMap } = await fetchCreatedByNames(rows);
+  const data = rows.map(e => ({
+    ...e,
+    consultantName: e.consultantUserId ? (consultantMap[e.consultantUserId] ?? null) : null,
+  }));
+
   return { data, meta: buildMeta(total, { page, limit }) };
 }
 
-export async function approveExpenses(ids: string[], approvedByUserId: string) {
+export async function approveExpenses(
+  ids: string[],
+  approvedByUserId: string,
+  updates?: Record<string, { clientChargeAmount: string }>,
+) {
   const entries = await db
     .select({ id: expenses.id, status: expenses.status })
     .from(expenses)
     .where(inArray(expenses.id, ids));
 
-  const notSubmitted = entries.filter(e => e.status !== 'submitted');
-  if (notSubmitted.length > 0) throw new AppError(MSG.NOT_SUBMITTED, 400);
+  const notPending = entries.filter(e => !['created', 'submitted'].includes(e.status));
+  if (notPending.length > 0) throw new AppError(MSG.NOT_PENDING, 400);
 
   const now = new Date();
-  await db.update(expenses).set({
-    status: 'approved',
-    approvedAt: now,
-    approvedBy: approvedByUserId,
-    updatedAt: now,
-  }).where(inArray(expenses.id, ids));
+  await db.transaction(async (tx) => {
+    await tx.update(expenses).set({
+      status: 'approved',
+      approvedAt: now,
+      approvedBy: approvedByUserId,
+      revertedBy: null,
+      revertedAt: null,
+      updatedAt: now,
+    }).where(inArray(expenses.id, ids));
+
+    if (updates) {
+      for (const [expenseId, data] of Object.entries(updates)) {
+        if (ids.includes(expenseId)) {
+          await tx.update(expenses).set({
+            clientChargeAmount: data.clientChargeAmount,
+            clientChargeAmountManuallySet: true,
+            updatedAt: now,
+          }).where(eq(expenses.id, expenseId));
+        }
+      }
+    }
+  });
 
   return { approved: ids.length };
 }
@@ -514,7 +577,7 @@ export async function rejectExpense(expenseId: string, rejectedByUserId: string,
 
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!expense) throw new AppError(MSG.NOT_FOUND, 404);
-  if (expense.status !== 'submitted') throw new AppError(MSG.NOT_SUBMITTED, 400);
+  if (!['created', 'submitted'].includes(expense.status)) throw new AppError(MSG.NOT_PENDING, 400);
 
   await db.transaction(async (tx) => {
     await tx.update(expenses).set({
@@ -548,7 +611,7 @@ export async function listReimbursements(params: PaginationParams & {
     eq(expenses.requiresReimbursement, true),
   ];
 
-  if (consultantId) conditions.push(eq(expenses.createdByUserId, consultantId));
+  if (consultantId) conditions.push(eq(expenses.consultantUserId, consultantId));
   if (projectId) conditions.push(eq(expenses.projectId, projectId));
   if (from && to) conditions.push(between(expenses.date, from, to));
   else if (from) conditions.push(sql`${expenses.date} >= ${from}`);
@@ -562,7 +625,18 @@ export async function listReimbursements(params: PaginationParams & {
 
   const where = and(...conditions);
 
-  const [data, [{ total }]] = await Promise.all([
+  // Base conditions without reimbursementStatus filter (for aggregate totals)
+  const baseConditions = [
+    eq(expenses.status, 'approved'),
+    eq(expenses.requiresReimbursement, true),
+  ];
+  if (consultantId) baseConditions.push(eq(expenses.consultantUserId, consultantId));
+  if (projectId) baseConditions.push(eq(expenses.projectId, projectId));
+  if (from && to) baseConditions.push(between(expenses.date, from, to));
+  else if (from) baseConditions.push(sql`${expenses.date} >= ${from}`);
+  else if (to) baseConditions.push(sql`${expenses.date} <= ${to}`);
+
+  const [data, [{ total }], [pendingResult], [paidResult]] = await Promise.all([
     db
       .select({
         ...expenseSelectFields,
@@ -572,7 +646,7 @@ export async function listReimbursements(params: PaginationParams & {
       .from(expenses)
       .leftJoin(projects, eq(expenses.projectId, projects.id))
       .leftJoin(clients, eq(projects.clientId, clients.id))
-      .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+      .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
       .leftJoin(files, eq(expenses.receiptFileId, files.id))
       .leftJoin(users, eq(expenses.createdByUserId, users.id))
       .where(where)
@@ -580,15 +654,16 @@ export async function listReimbursements(params: PaginationParams & {
       .limit(limit)
       .offset(offset),
     db.select({ total: drizzleCount() }).from(expenses).where(where),
+    db.select({ total: sql<string>`COALESCE(SUM(${expenses.amount}), 0)` })
+      .from(expenses)
+      .where(and(...baseConditions, sql`${expenses.reimbursedAt} IS NULL`)),
+    db.select({ total: sql<string>`COALESCE(SUM(${expenses.amount}), 0)` })
+      .from(expenses)
+      .where(and(...baseConditions, sql`${expenses.reimbursedAt} IS NOT NULL`)),
   ]);
 
-  // Compute totals
-  const pendingConditions = [...conditions.filter(c => c !== where), sql`${expenses.reimbursedAt} IS NULL`];
-  const paidConditions = [...conditions.filter(c => c !== where), sql`${expenses.reimbursedAt} IS NOT NULL`];
-
-  // Simplified: compute from returned data + total
-  const totalPending = data.filter(d => !d.reimbursedAt).reduce((sum, d) => sum + Number(d.amount), 0);
-  const totalPaid = data.filter(d => !!d.reimbursedAt).reduce((sum, d) => sum + Number(d.amount), 0);
+  const totalPending = Number(pendingResult.total);
+  const totalPaid = Number(paidResult.total);
 
   return { data, meta: buildMeta(total, { page, limit }), totalPending, totalPaid };
 }

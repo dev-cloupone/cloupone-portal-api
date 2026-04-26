@@ -5,7 +5,7 @@ const PdfPrinter = require('pdfmake/js/Printer').default;
 const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
-import { timeEntries, projects, clients, users, consultantProfiles, activityCategories, tickets, expenses, expenseCategories } from '../db/schema';
+import { timeEntries, projects, clients, users, consultantProfiles, tickets, expenses, projectExpenseCategories } from '../db/schema';
 import { AppError } from '../utils/app-error';
 
 const MSG = {
@@ -43,7 +43,6 @@ function formatMonthYear(from: string, to: string): string {
 interface ClientReportEntry {
   date: string;
   consultantName: string | null;
-  activityName: string | null;
   description: string | null;
   hours: string;
 }
@@ -59,7 +58,6 @@ export async function getClientReportData(clientId: string, from: string, to: st
     .select({
       date: timeEntries.date,
       consultantName: users.name,
-      activityName: activityCategories.name,
       description: timeEntries.description,
       hours: timeEntries.hours,
       projectName: projects.name,
@@ -68,7 +66,6 @@ export async function getClientReportData(clientId: string, from: string, to: st
     .from(timeEntries)
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .innerJoin(users, eq(timeEntries.userId, users.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .where(and(
       eq(projects.clientId, clientId),
       sql`EXISTS (SELECT 1 FROM monthly_timesheets mt WHERE mt.user_id = ${timeEntries.userId} AND mt.year = EXTRACT(YEAR FROM ${timeEntries.date})::integer AND mt.month = EXTRACT(MONTH FROM ${timeEntries.date})::integer AND mt.status = 'approved')`,
@@ -106,14 +103,12 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
     [
       { text: 'Data', style: 'tableHeader' },
       { text: 'Consultor', style: 'tableHeader' },
-      { text: 'Atividade', style: 'tableHeader' },
       { text: 'Descrição', style: 'tableHeader' },
       { text: 'Horas', style: 'tableHeader', alignment: 'right' },
     ],
     ...data.entries.map((e) => [
       formatDate(e.date),
       e.consultantName || '-',
-      e.activityName || '-',
       e.description || '-',
       { text: Number(e.hours).toFixed(1), alignment: 'right' as const },
     ]),
@@ -141,7 +136,7 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
       {
         table: {
           headerRows: 1,
-          widths: [60, 80, 70, '*', 40],
+          widths: [60, 80, '*', 40],
           body: tableBody,
         },
         layout: 'lightHorizontalLines',
@@ -187,7 +182,7 @@ export async function generateClientPdf(clientId: string, from: string, to: stri
               formatDate(e.date),
               e.consultantName || '-',
               e.categoryName || '-',
-              e.description,
+              e.description || '-',
               { text: `R$ ${Number(e.amount).toFixed(2)}`, alignment: 'right' as const },
             ]),
           ],
@@ -527,12 +522,11 @@ export async function generateClientCsv(clientId: string, from: string, to: stri
 
   // Hours section
   lines.push('Horas');
-  lines.push('Data;Consultor;Atividade;Descrição;Horas');
+  lines.push('Data;Consultor;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
       e.consultantName || '',
-      e.activityName || '',
       `"${(e.description || '').replace(/"/g, '""')}"`,
       Number(e.hours).toFixed(1),
     ].join(';'));
@@ -559,7 +553,7 @@ export async function generateClientCsv(clientId: string, from: string, to: stri
         formatDate(e.date),
         e.consultantName || '',
         e.categoryName || '',
-        `"${e.description.replace(/"/g, '""')}"`,
+        `"${(e.description || '').replace(/"/g, '""')}"`,
         Number(e.amount).toFixed(2),
       ].join(';'));
     }
@@ -577,8 +571,6 @@ interface ConsultantReportEntry {
   date: string;
   projectName: string;
   billingRate: string;
-  activityName: string | null;
-  isBillable: boolean;
   ticketCode: string | null;
   ticketTitle: string | null;
   ticketType: string | null;
@@ -648,8 +640,6 @@ export async function getConsultantReportData(
       date: timeEntries.date,
       projectName: projects.name,
       billingRate: projects.billingRate,
-      activityName: activityCategories.name,
-      isBillable: activityCategories.isBillable,
       ticketCode: tickets.code,
       ticketTitle: tickets.title,
       ticketType: tickets.type,
@@ -660,7 +650,6 @@ export async function getConsultantReportData(
     })
     .from(timeEntries)
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(timeEntries.userId, consultantUserId),
@@ -680,7 +669,6 @@ export async function getConsultantReportData(
 
   for (const e of entries) {
     const hours = Number(e.hours);
-    const billable = e.isBillable !== false; // default true if no category
     const existing = projectMap.get(e.projectName) || {
       billingRate: Number(e.billingRate),
       totalHours: 0,
@@ -690,8 +678,7 @@ export async function getConsultantReportData(
     };
 
     existing.totalHours += hours;
-    if (billable) existing.billableHours += hours;
-    else existing.nonBillableHours += hours;
+    existing.billableHours += hours;
 
     // Track ticket hours
     if (e.ticketCode && e.ticketId) {
@@ -736,8 +723,6 @@ export async function getConsultantReportData(
     date: e.date,
     projectName: e.projectName,
     billingRate: e.billingRate,
-    activityName: e.activityName,
-    isBillable: e.isBillable !== false,
     ticketCode: e.ticketCode,
     ticketTitle: e.ticketTitle,
     ticketType: e.ticketType,
@@ -820,21 +805,19 @@ export async function generateConsultantPdf(
         [
           { text: 'Data', style: 'tableHeader' },
           { text: 'Ticket', style: 'tableHeader' },
-          { text: 'Atividade', style: 'tableHeader' },
           { text: 'Descrição', style: 'tableHeader' },
           { text: 'Horas', style: 'tableHeader', alignment: 'right' },
         ],
         ...projEntries.map((e) => [
           formatDate(e.date),
           e.ticketCode || '(sem ticket)',
-          e.activityName || '-',
           e.description || '-',
           { text: Number(e.hours).toFixed(1), alignment: 'right' as const },
         ]),
       ];
 
       content.push({
-        table: { headerRows: 1, widths: [55, 60, 65, '*', 35], body: entryBody },
+        table: { headerRows: 1, widths: [55, 60, '*', 35], body: entryBody },
         layout: 'lightHorizontalLines',
         margin: [0, 0, 0, 5] as [number, number, number, number],
       });
@@ -917,14 +900,12 @@ export async function generateConsultantCsv(
 
   // Section 2 - Detail
   lines.push('Detalhamento');
-  lines.push('Data;Projeto;Ticket;Atividade;Billable;Descrição;Horas');
+  lines.push('Data;Projeto;Ticket;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
       e.projectName,
       e.ticketCode || '(sem ticket)',
-      e.activityName || '',
-      e.isBillable ? 'Sim' : 'Nao',
       `"${(e.description || '').replace(/"/g, '""')}"`,
       Number(e.hours).toFixed(1),
     ].join(';'));
@@ -958,7 +939,6 @@ interface EnhancedClientEntry {
   date: string;
   consultantName: string | null;
   ticketCode: string | null;
-  activityName: string | null;
   description: string | null;
   hours: string;
   projectName: string;
@@ -1033,7 +1013,6 @@ export async function getEnhancedClientReportData(
       date: timeEntries.date,
       consultantName: users.name,
       ticketCode: tickets.code,
-      activityName: activityCategories.name,
       description: timeEntries.description,
       hours: timeEntries.hours,
       projectName: projects.name,
@@ -1042,7 +1021,6 @@ export async function getEnhancedClientReportData(
     .from(timeEntries)
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .innerJoin(users, eq(timeEntries.userId, users.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(projects.clientId, clientId),
@@ -1209,14 +1187,12 @@ export async function generateEnhancedClientPdf(
           { text: 'Data', style: 'tableHeader' },
           { text: 'Consultor', style: 'tableHeader' },
           { text: 'Ticket', style: 'tableHeader' },
-          { text: 'Atividade', style: 'tableHeader' },
           { text: 'Horas', style: 'tableHeader', alignment: 'right' },
         ],
         ...projEntries.map((e) => [
           formatDate(e.date),
           e.consultantName || '-',
           e.ticketCode || '(sem ticket)',
-          e.activityName || '-',
           { text: Number(e.hours).toFixed(1), alignment: 'right' as const },
         ]),
       ];
@@ -1224,7 +1200,7 @@ export async function generateEnhancedClientPdf(
       content.push(
         { text: 'Horas Detalhadas', fontSize: 10, bold: true, margin: [0, 5, 0, 3] as [number, number, number, number] },
         {
-          table: { headerRows: 1, widths: [55, 80, 55, '*', 35], body: entryBody },
+          table: { headerRows: 1, widths: [55, 80, 55, 35], body: entryBody },
           layout: 'lightHorizontalLines',
           margin: [0, 0, 0, 5] as [number, number, number, number],
         },
@@ -1352,14 +1328,13 @@ export async function generateEnhancedClientCsv(
 
   // Section 3 - Detailed hours
   lines.push('Horas Detalhadas');
-  lines.push('Data;Consultor;Projeto;Ticket;Atividade;Descrição;Horas');
+  lines.push('Data;Consultor;Projeto;Ticket;Descrição;Horas');
   for (const e of data.entries) {
     lines.push([
       formatDate(e.date),
       e.consultantName || '',
       e.projectName,
       e.ticketCode || '(sem ticket)',
-      e.activityName || '',
       `"${(e.description || '').replace(/"/g, '""')}"`,
       Number(e.hours).toFixed(1),
     ].join(';'));
@@ -1376,7 +1351,7 @@ interface ExpenseReportEntry {
   projectName: string;
   clientName: string;
   categoryName: string | null;
-  description: string;
+  description: string | null;
   amount: string;
   requiresReimbursement: boolean;
   reimbursedAt: Date | null;
@@ -1420,7 +1395,7 @@ export async function getExpenseReportData(
       consultantName: users.name,
       projectName: projects.name,
       clientName: clients.companyName,
-      categoryName: expenseCategories.name,
+      categoryName: projectExpenseCategories.name,
       description: expenses.description,
       amount: expenses.amount,
       requiresReimbursement: expenses.requiresReimbursement,
@@ -1430,7 +1405,7 @@ export async function getExpenseReportData(
     .innerJoin(projects, eq(expenses.projectId, projects.id))
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .leftJoin(users, eq(expenses.createdByUserId, users.id))
-    .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+    .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
     .where(and(...conditions))
     .orderBy(expenses.date, users.name);
 
@@ -1532,7 +1507,7 @@ export async function generateExpensePdf(
             e.consultantName || '-',
             e.projectName,
             e.categoryName || '-',
-            e.description,
+            e.description || '-',
             { text: `R$ ${Number(e.amount).toFixed(2)}`, alignment: 'right' as const },
           ]),
         ],
@@ -1613,7 +1588,7 @@ export async function generateExpenseCsv(
       e.projectName,
       e.clientName,
       e.categoryName || '',
-      `"${e.description.replace(/"/g, '""')}"`,
+      `"${(e.description || '').replace(/"/g, '""')}"`,
       Number(e.amount).toFixed(2),
       e.requiresReimbursement ? 'Sim' : 'Nao',
       e.reimbursedAt ? 'Sim' : 'Nao',
@@ -1630,20 +1605,206 @@ export async function getClientReportExpenses(clientId: string, from: string, to
     .select({
       date: expenses.date,
       consultantName: users.name,
-      categoryName: expenseCategories.name,
+      categoryName: projectExpenseCategories.name,
       description: expenses.description,
       amount: expenses.amount,
     })
     .from(expenses)
     .innerJoin(projects, eq(expenses.projectId, projects.id))
     .leftJoin(users, eq(expenses.createdByUserId, users.id))
-    .leftJoin(expenseCategories, eq(expenses.expenseCategoryId, expenseCategories.id))
+    .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
     .where(and(
       eq(projects.clientId, clientId),
       eq(expenses.status, 'approved'),
       between(expenses.date, from, to),
     ))
     .orderBy(expenses.date, users.name);
+}
+
+// --- Weekly Expense Report (V2) ---
+
+interface WeeklyExpenseReportEntry {
+  date: string;
+  consultantName: string | null;
+  categoryName: string | null;
+  description: string | null;
+  amount: string;
+  clientChargeAmount: string;
+  kmQuantity: string | null;
+  requiresReimbursement: boolean;
+  reimbursedAt: Date | null;
+  status: string;
+}
+
+interface WeeklyExpenseReportData {
+  project: { id: string; name: string; clientName: string };
+  period: { weekStart: string; weekEnd: string; status: string };
+  byConsultant: {
+    consultantName: string;
+    expenseCount: number;
+    totalAmount: number;
+    totalClientCharge: number;
+    totalReimbursable: number;
+    expenses: WeeklyExpenseReportEntry[];
+  }[];
+  byCategory: {
+    categoryName: string;
+    maxAmount: string | null;
+    totalAmount: number;
+    totalClientCharge: number;
+    percentUsed: number | null;
+  }[];
+  totals: {
+    totalAmount: number;
+    totalClientCharge: number;
+    totalReimbursable: number;
+    totalReimbursed: number;
+    expenseCount: number;
+  };
+}
+
+export async function getWeeklyExpenseReport(
+  projectId: string,
+  weekStart: string,
+  filters?: { consultantId?: string; categoryId?: string; status?: string; reimbursementStatus?: string },
+): Promise<WeeklyExpenseReportData> {
+  // Get project info
+  const [project] = await db.select({ id: projects.id, name: projects.name, clientName: clients.companyName })
+    .from(projects)
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  if (!project) throw new AppError(MSG.NO_DATA, 404);
+
+  // Get period info
+  const { projectExpensePeriods } = await import('../db/schema');
+  const [period] = await db.select()
+    .from(projectExpensePeriods)
+    .where(and(
+      eq(projectExpensePeriods.projectId, projectId),
+      eq(projectExpensePeriods.weekStart, weekStart),
+    ))
+    .limit(1);
+
+  const weekEnd = period?.weekEnd || (() => {
+    const d = new Date(weekStart + 'T12:00:00');
+    d.setDate(d.getDate() + 6);
+    return d.toISOString().split('T')[0];
+  })();
+
+  // Get expenses
+  const conditions = [
+    eq(expenses.projectId, projectId),
+    between(expenses.date, weekStart, weekEnd),
+  ];
+  if (filters?.consultantId) conditions.push(eq(expenses.createdByUserId, filters.consultantId));
+  if (filters?.categoryId) conditions.push(eq(expenses.expenseCategoryId, filters.categoryId));
+  if (filters?.status) conditions.push(eq(expenses.status, filters.status as 'created' | 'draft' | 'submitted' | 'approved' | 'rejected'));
+  if (filters?.reimbursementStatus === 'pending') conditions.push(sql`${expenses.reimbursedAt} IS NULL`, eq(expenses.requiresReimbursement, true));
+  else if (filters?.reimbursementStatus === 'paid') conditions.push(sql`${expenses.reimbursedAt} IS NOT NULL`);
+
+  const entries = await db
+    .select({
+      date: expenses.date,
+      consultantName: users.name,
+      categoryName: projectExpenseCategories.name,
+      categoryMaxAmount: projectExpenseCategories.maxAmount,
+      description: expenses.description,
+      amount: expenses.amount,
+      clientChargeAmount: expenses.clientChargeAmount,
+      kmQuantity: expenses.kmQuantity,
+      requiresReimbursement: expenses.requiresReimbursement,
+      reimbursedAt: expenses.reimbursedAt,
+      status: expenses.status,
+    })
+    .from(expenses)
+    .leftJoin(users, eq(expenses.createdByUserId, users.id))
+    .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
+    .where(and(...conditions))
+    .orderBy(expenses.date, users.name);
+
+  // Group by consultant
+  const consultantMap = new Map<string, { expenses: WeeklyExpenseReportEntry[]; totalAmount: number; totalClientCharge: number; totalReimbursable: number }>();
+  const categoryMap = new Map<string, { maxAmount: string | null; totalAmount: number; totalClientCharge: number }>();
+  let totalAmount = 0;
+  let totalClientCharge = 0;
+  let totalReimbursable = 0;
+  let totalReimbursed = 0;
+
+  for (const e of entries) {
+    const amt = Number(e.amount);
+    const charge = Number(e.clientChargeAmount);
+    totalAmount += amt;
+    totalClientCharge += charge;
+    if (e.requiresReimbursement) totalReimbursable += amt;
+    if (e.reimbursedAt) totalReimbursed += amt;
+
+    const consultantName = e.consultantName || 'Sem consultor';
+    const existing = consultantMap.get(consultantName) || { expenses: [], totalAmount: 0, totalClientCharge: 0, totalReimbursable: 0 };
+    existing.expenses.push(e);
+    existing.totalAmount += amt;
+    existing.totalClientCharge += charge;
+    if (e.requiresReimbursement) existing.totalReimbursable += amt;
+    consultantMap.set(consultantName, existing);
+
+    const catName = e.categoryName || 'Sem categoria';
+    const catExisting = categoryMap.get(catName) || { maxAmount: e.categoryMaxAmount ?? null, totalAmount: 0, totalClientCharge: 0 };
+    catExisting.totalAmount += amt;
+    catExisting.totalClientCharge += charge;
+    categoryMap.set(catName, catExisting);
+  }
+
+  return {
+    project: { id: project.id, name: project.name, clientName: project.clientName },
+    period: { weekStart, weekEnd, status: period?.status || 'unknown' },
+    byConsultant: Array.from(consultantMap.entries()).map(([consultantName, data]) => ({
+      consultantName,
+      expenseCount: data.expenses.length,
+      ...data,
+    })),
+    byCategory: Array.from(categoryMap.entries()).map(([categoryName, data]) => ({
+      categoryName,
+      maxAmount: data.maxAmount,
+      totalAmount: data.totalAmount,
+      totalClientCharge: data.totalClientCharge,
+      percentUsed: data.maxAmount ? (data.totalAmount / Number(data.maxAmount)) * 100 : null,
+    })),
+    totals: { totalAmount, totalClientCharge, totalReimbursable, totalReimbursed, expenseCount: entries.length },
+  };
+}
+
+export async function generateWeeklyExpenseCsv(
+  projectId: string,
+  weekStart: string,
+  filters?: { consultantId?: string; categoryId?: string; status?: string; reimbursementStatus?: string },
+): Promise<string> {
+  const data = await getWeeklyExpenseReport(projectId, weekStart, filters);
+  const lines: string[] = [];
+  lines.push(`Relatório Semanal de Despesas;${data.project.name};${data.project.clientName}`);
+  lines.push(`Semana;${data.period.weekStart};${data.period.weekEnd}`);
+  lines.push('');
+  lines.push('Consultor;Data;Categoria;Descrição;Valor;Cobrança Cliente;KM;Reembolso;Status');
+
+  for (const group of data.byConsultant) {
+    for (const e of group.expenses) {
+      lines.push([
+        group.consultantName,
+        formatDate(e.date),
+        e.categoryName || '',
+        `"${(e.description || '').replace(/"/g, '""')}"`,
+        Number(e.amount).toFixed(2),
+        Number(e.clientChargeAmount).toFixed(2),
+        e.kmQuantity ? Number(e.kmQuantity).toFixed(1) : '',
+        e.requiresReimbursement ? 'Sim' : 'Não',
+        e.status,
+      ].join(';'));
+    }
+  }
+
+  lines.push('');
+  lines.push(`Total;${data.totals.expenseCount} despesas;${data.totals.totalAmount.toFixed(2)};${data.totals.totalClientCharge.toFixed(2)}`);
+
+  return lines.join('\n');
 }
 
 // --- Helper: pdfmake to Buffer ---

@@ -92,6 +92,55 @@
       "when": 1776122336852,
       "tag": "0012_daily_black_crow",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776883200000,
+      "tag": "0013_expenses_v2_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1776969600000,
+      "tag": "0014_fix_expense_category_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1777056000000,
+      "tag": "0015_expense_status_created",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777142400000,
+      "tag": "0016_drop_activity_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777228800000,
+      "tag": "0017_drop_sort_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777315200000,
+      "tag": "0018_reopen_period",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777401600000,
+      "tag": "0019_add_reverted_fields",
+      "breakpoints": true
     }
   ]
 }

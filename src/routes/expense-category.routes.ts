@@ -11,5 +11,6 @@ router.get('/:id', auth, authenticatedRateLimit, expenseCategoryController.getBy
 router.post('/', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.create);
 router.put('/:id', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.update);
 router.delete('/:id', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.deactivate);
+router.patch('/:id/reactivate', auth, authorize('super_admin'), authenticatedRateLimit, expenseCategoryController.reactivate);
 
 export { router as expenseCategoryRoutes };

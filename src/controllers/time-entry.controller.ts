@@ -11,7 +11,6 @@ const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const upsertEntrySchema = z.object({
   id: z.string().uuid().optional(),
   projectId: z.string().uuid(V.uuidInvalid('Projeto')),
-  categoryId: z.string().uuid(V.uuidInvalid('Categoria')).nullable().optional(),
   date: z.string().regex(dateRegex, V.dateInvalid),
   startTime: z.string().regex(timeRegex, 'Horário de início inválido (HH:MM)'),
   endTime: z.string().regex(timeRegex, 'Horário de fim inválido (HH:MM)'),
@@ -50,7 +49,6 @@ const upsert: RequestHandler = async (req, res, next) => {
       userRole: req.userRole,
       id: data.id,
       projectId: data.projectId,
-      categoryId: data.categoryId,
       date: data.date,
       startTime: data.startTime,
       endTime: data.endTime,

@@ -29,4 +29,8 @@ router.get('/expenses', reportController.expenseData);
 router.get('/expenses/pdf', reportController.expensePdf);
 router.get('/expenses/excel', reportController.expenseCsv);
 
+// Weekly Expense Report (V2)
+router.get('/expenses/weekly', authorize('super_admin', 'gestor'), reportController.weeklyExpenseData);
+router.get('/expenses/weekly/csv', authorize('super_admin', 'gestor'), reportController.weeklyExpenseCsv);
+
 export { router as reportRoutes };
