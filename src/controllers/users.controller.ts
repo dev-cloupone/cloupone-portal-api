@@ -30,10 +30,21 @@ const updateUserSchema = z.object({
   { message: 'Cliente é obrigatório para a função Cliente.', path: ['clientId'] },
 );
 
+const listFiltersSchema = z.object({
+  role: z.enum(['super_admin', 'gestor', 'consultor', 'client']).optional(),
+  clientId: z.string().uuid().optional(),
+  isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
 const list: RequestHandler = async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
-    const result = await userService.listUsers({ page, limit });
+    const filters = listFiltersSchema.parse(req.query);
+    const result = await userService.listUsers({ page, limit }, {
+      role: filters.role,
+      clientId: filters.clientId,
+      isActive: filters.isActive,
+    });
     res.json(result);
   } catch (err) {
     next(err);

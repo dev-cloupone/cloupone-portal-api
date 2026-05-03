@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { eq, count as drizzleCount, desc } from 'drizzle-orm';
+import { eq, and, count as drizzleCount, desc, type SQL } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -46,16 +46,30 @@ export async function getDashboard() {
   };
 }
 
-export async function listUsers(pagination: PaginationParams) {
+export interface UserFilters {
+  role?: 'super_admin' | 'gestor' | 'consultor' | 'client';
+  clientId?: string;
+  isActive?: boolean;
+}
+
+export async function listUsers(pagination: PaginationParams, filters?: UserFilters) {
   const offset = (pagination.page - 1) * pagination.limit;
+
+  const conditions: SQL[] = [];
+  if (filters?.role) conditions.push(eq(users.role, filters.role));
+  if (filters?.clientId) conditions.push(eq(users.clientId, filters.clientId));
+  if (filters?.isActive !== undefined) conditions.push(eq(users.isActive, filters.isActive));
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [data, [{ total }]] = await Promise.all([
     db.select(safeFields)
       .from(users)
+      .where(where)
       .orderBy(users.createdAt)
       .limit(pagination.limit)
       .offset(offset),
-    db.select({ total: drizzleCount() }).from(users),
+    db.select({ total: drizzleCount() }).from(users).where(where),
   ]);
 
   return { data, meta: buildMeta(total, pagination) };
