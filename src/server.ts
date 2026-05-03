@@ -18,7 +18,7 @@ import { projectRoutes } from './routes/project.routes';
 import { consultantRoutes } from './routes/consultant.routes';
 import { timeEntryRoutes } from './routes/time-entry.routes';
 import { dashboardRoutes } from './routes/dashboard.routes';
-import { reportRoutes } from './routes/report.routes';
+import { reportManagementRoutes } from './routes/report-management.routes';
 
 import { ticketRoutes } from './routes/ticket.routes';
 import { expenseCategoryRoutes } from './routes/expense-category.routes';
@@ -88,7 +88,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/consultants', consultantRoutes);
 app.use('/api/time-entries', timeEntryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/reports', reportRoutes);
+app.use('/api/reports', reportManagementRoutes);
 
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/expense-category-templates', expenseCategoryRoutes);

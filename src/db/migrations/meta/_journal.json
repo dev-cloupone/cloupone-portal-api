@@ -141,6 +141,20 @@
       "when": 1777401600000,
       "tag": "0019_add_reverted_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777488000000,
+      "tag": "0020_add_project_category_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777574400000,
+      "tag": "0021_create_reports_tables",
+      "breakpoints": true
     }
   ]
 }

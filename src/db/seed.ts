@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { db } from './index';
-import { users, platformSettings, expenseCategoryTemplates } from './schema';
+import { users, platformSettings, expenseCategoryTemplates, reports } from './schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
@@ -60,6 +60,15 @@ async function seed() {
     await db.insert(expenseCategoryTemplates).values(cat).onConflictDoNothing();
   }
   logger.info('Expense categories seeded');
+
+  // Seed reports
+  await db.insert(reports).values({
+    name: 'Relatório de Despesas',
+    slug: 'expenses',
+    description: 'Relatório detalhado de despesas por projeto, semana e consultor.',
+    isActive: true,
+  }).onConflictDoNothing();
+  logger.info('Reports seeded');
 
   process.exit(0);
 }

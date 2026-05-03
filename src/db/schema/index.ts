@@ -15,3 +15,4 @@ export { expenseStatusEnum, expensePeriodStatusEnum, expenseCategoryTemplates, p
 export { projectPhases } from './project-phases';
 export { subphaseStatusEnum, projectSubphases } from './project-subphases';
 export { subphaseConsultants } from './subphase-consultants';
+export { reports, reportPermissions } from './reports';

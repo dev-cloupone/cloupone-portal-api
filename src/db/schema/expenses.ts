@@ -4,6 +4,7 @@ import { projects } from './projects';
 import { files } from './files';
 
 // Enums
+/** @note 'draft' and 'submitted' are deprecated — all records were migrated to 'created'. Kept due to Postgres enum limitation (cannot remove values). */
 export const expenseStatusEnum = pgEnum('expense_status', ['draft', 'submitted', 'created', 'approved', 'rejected']);
 export const expensePeriodStatusEnum = pgEnum('expense_period_status', ['open', 'closed']);
 
