@@ -47,7 +47,7 @@ export async function getDashboard() {
 }
 
 export interface UserFilters {
-  role?: string;
+  role?: 'super_admin' | 'gestor' | 'consultor' | 'client';
   clientId?: string;
   isActive?: boolean;
 }
