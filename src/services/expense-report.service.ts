@@ -107,6 +107,10 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
     baseConditions.push(eq(expenses.consultantUserId, filters.consultantId));
   }
 
+  if (filters.view === 'consultant') {
+    baseConditions.push(eq(expenses.requiresReimbursement, true));
+  }
+
   const allEntries = await db
     .select({
       date: expenses.date,
