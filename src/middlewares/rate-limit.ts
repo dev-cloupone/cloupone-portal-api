@@ -1,10 +1,10 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RATE_LIMIT } from '../utils/error-messages';
 
-// Auth sensível: 10 req/min por IP (login, forgot/reset password)
+// Auth sensível: 20 req/min por IP (login, forgot/reset password)
 export const authSensitiveRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 20,
   message: { error: RATE_LIMIT.TOO_MANY_ATTEMPTS },
   standardHeaders: true,
   legacyHeaders: false,
@@ -34,10 +34,10 @@ export const searchRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-// Admin/geral autenticado: 60 req/min por usuário
+// Admin/geral autenticado: 120 req/min por usuário
 export const authenticatedRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: 120,
   keyGenerator: authKeyGenerator,
   message: { error: RATE_LIMIT.TOO_MANY_REQUESTS },
   standardHeaders: true,

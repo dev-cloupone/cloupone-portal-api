@@ -1,6 +1,6 @@
 import { eq, and, sql, count as drizzleCount, lt, desc } from 'drizzle-orm';
 import { db } from '../db';
-import { monthlyTimesheets, timeEntries, users, projects, activityCategories, tickets } from '../db/schema';
+import { monthlyTimesheets, timeEntries, users, projects, tickets } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -120,7 +120,6 @@ export async function getDetail(userId: string, year: number, month: number) {
       id: timeEntries.id,
       userId: timeEntries.userId,
       projectId: timeEntries.projectId,
-      categoryId: timeEntries.categoryId,
       date: timeEntries.date,
       startTime: timeEntries.startTime,
       endTime: timeEntries.endTime,
@@ -130,12 +129,10 @@ export async function getDetail(userId: string, year: number, month: number) {
       createdAt: timeEntries.createdAt,
       updatedAt: timeEntries.updatedAt,
       projectName: projects.name,
-      categoryName: activityCategories.name,
       ticketCode: tickets.code,
     })
     .from(timeEntries)
     .leftJoin(projects, eq(timeEntries.projectId, projects.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(
       and(

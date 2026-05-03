@@ -12,19 +12,25 @@ const upsertExpenseSchema = z.object({
   consultantUserId: z.string().uuid(V.uuidInvalid('Consultor')).nullable().optional(),
   expenseCategoryId: z.string().uuid(V.uuidInvalid('Categoria')).nullable().optional(),
   date: z.string().regex(dateRegex, V.dateInvalid),
-  description: z.string().min(1, V.required('Descrição')).max(500, V.max('Descrição', 500)),
+  description: z.string().max(500, V.max('Descrição', 500)).optional().nullable(),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
+  kmQuantity: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
+  clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
+  clientChargeAmountManuallySet: z.boolean().optional(),
   receiptFileId: z.string().uuid(V.uuidInvalid('Comprovante')).nullable().optional(),
   requiresReimbursement: z.boolean().optional(),
   templateId: z.string().uuid(V.uuidInvalid('Template')).nullable().optional(),
 });
 
-const submitWeekSchema = z.object({
-  weekStartDate: z.string().regex(dateRegex, V.dateInvalid),
-});
 
 const approveExpensesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1, 'Selecione ao menos uma despesa.'),
+  updates: z.record(
+    z.string().uuid(),
+    z.object({
+      clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
+    })
+  ).optional(),
 });
 
 const rejectExpenseSchema = z.object({
@@ -41,7 +47,15 @@ const getMonthExpenses: RequestHandler = async (req, res, next) => {
   try {
     const year = z.coerce.number().int().parse(req.query.year);
     const month = z.coerce.number().int().min(1).max(12).parse(req.query.month);
-    const result = await expenseService.getMonthExpenses(req.userId!, year, month);
+    const consultantUserId = req.query.consultantUserId
+      ? z.string().uuid().parse(req.query.consultantUserId)
+      : undefined;
+    const projectId = req.query.projectId
+      ? z.string().uuid().parse(req.query.projectId)
+      : undefined;
+    const result = await expenseService.getMonthExpenses(
+      req.userId!, req.userRole!, year, month, consultantUserId, projectId,
+    );
     res.json(result);
   } catch (err) {
     next(err);
@@ -77,16 +91,6 @@ const remove: RequestHandler = async (req, res, next) => {
   }
 };
 
-const submitWeek: RequestHandler = async (req, res, next) => {
-  try {
-    const { weekStartDate } = submitWeekSchema.parse(req.body);
-    const result = await expenseService.submitWeek(req.userId!, weekStartDate);
-    res.json(result);
-  } catch (err) {
-    next(err);
-  }
-};
-
 const resubmit: RequestHandler = async (req, res, next) => {
   try {
     const result = await expenseService.resubmitExpense(idSchema.parse(req.params.id), req.userId!);
@@ -103,7 +107,7 @@ const listPending: RequestHandler = async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const consultantId = req.query.consultantId as string | undefined;
     const projectId = req.query.projectId as string | undefined;
-    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId });
+    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId, requestUserId: req.userId!, requestUserRole: req.userRole! });
     res.json(result);
   } catch (err) {
     next(err);
@@ -112,8 +116,8 @@ const listPending: RequestHandler = async (req, res, next) => {
 
 const approve: RequestHandler = async (req, res, next) => {
   try {
-    const { ids } = approveExpensesSchema.parse(req.body);
-    const result = await expenseService.approveExpenses(ids, req.userId!);
+    const { ids, updates } = approveExpensesSchema.parse(req.body);
+    const result = await expenseService.approveExpenses(ids, req.userId!, updates);
     res.json(result);
   } catch (err) {
     next(err);
@@ -125,6 +129,17 @@ const reject: RequestHandler = async (req, res, next) => {
     const { comment } = rejectExpenseSchema.parse(req.body);
     await expenseService.rejectExpense(idSchema.parse(req.params.id), req.userId!, comment);
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+};
+
+const revert: RequestHandler = async (req, res, next) => {
+  try {
+    const result = await expenseService.revertExpense(
+      idSchema.parse(req.params.id), req.userId!, req.userRole!,
+    );
+    res.json(result);
   } catch (err) {
     next(err);
   }
@@ -174,8 +189,8 @@ export const expenseController = {
   getWeekExpenses,
   upsert,
   remove,
-  submitWeek,
   resubmit,
+  revert,
   listPending,
   approve,
   reject,

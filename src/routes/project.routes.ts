@@ -13,12 +13,11 @@ router.get('/', auth, authenticatedRateLimit, projectController.list);
 router.get('/:id/allocations', auth, authorize('consultor', 'gestor', 'super_admin'), authenticatedRateLimit, projectController.listAllocations);
 
 // All other routes require super_admin or gestor
-router.use(auth, authorize('super_admin', 'gestor'), authenticatedRateLimit);
-router.get('/:id', projectController.getById);
-router.post('/', projectController.create);
-router.patch('/:id', projectController.update);
-router.delete('/:id', projectController.deactivate);
-router.post('/:id/allocations', projectController.addAllocation);
-router.delete('/:id/allocations/:userId', projectController.removeAllocation);
+router.get('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.getById);
+router.post('/', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.create);
+router.patch('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.update);
+router.delete('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.deactivate);
+router.post('/:id/allocations', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.addAllocation);
+router.delete('/:id/allocations/:userId', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.removeAllocation);
 
 export { router as projectRoutes };

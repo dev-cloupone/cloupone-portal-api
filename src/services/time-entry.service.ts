@@ -1,6 +1,6 @@
 import { eq, and, between, count as drizzleCount, desc, asc, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { timeEntries, projects, activityCategories, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
+import { timeEntries, projects, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -140,8 +140,6 @@ export async function getMonthEntries(userId: string, date: string) {
       projectId: timeEntries.projectId,
       projectName: projects.name,
       clientName: clients.companyName,
-      categoryId: timeEntries.categoryId,
-      categoryName: activityCategories.name,
       date: timeEntries.date,
       startTime: timeEntries.startTime,
       endTime: timeEntries.endTime,
@@ -157,7 +155,6 @@ export async function getMonthEntries(userId: string, date: string) {
     .from(timeEntries)
     .leftJoin(projects, eq(timeEntries.projectId, projects.id))
     .leftJoin(clients, eq(projects.clientId, clients.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(timeEntries.userId, userId),
@@ -199,8 +196,6 @@ export async function getWeekEntries(userId: string, weekStartDate: string) {
       projectId: timeEntries.projectId,
       projectName: projects.name,
       clientName: clients.companyName,
-      categoryId: timeEntries.categoryId,
-      categoryName: activityCategories.name,
       date: timeEntries.date,
       startTime: timeEntries.startTime,
       endTime: timeEntries.endTime,
@@ -215,7 +210,6 @@ export async function getWeekEntries(userId: string, weekStartDate: string) {
     .from(timeEntries)
     .leftJoin(projects, eq(timeEntries.projectId, projects.id))
     .leftJoin(clients, eq(projects.clientId, clients.id))
-    .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(
       eq(timeEntries.userId, userId),
@@ -238,7 +232,6 @@ interface UpsertEntryInput {
   userRole?: string;
   id?: string;
   projectId: string;
-  categoryId?: string | null;
   date: string;
   startTime: string;
   endTime: string;
@@ -336,7 +329,6 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     // 9. Update
     const [updated] = await db.update(timeEntries).set({
       projectId: data.projectId,
-      categoryId: data.categoryId ?? null,
       date: data.date,
       startTime,
       endTime,
@@ -361,7 +353,6 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   const [created] = await db.insert(timeEntries).values({
     userId: data.userId,
     projectId: data.projectId,
-    categoryId: data.categoryId ?? null,
     date: data.date,
     startTime,
     endTime,
@@ -537,8 +528,6 @@ export async function listTimeEntries(params: PaginationParams & {
         projectId: timeEntries.projectId,
         projectName: projects.name,
         clientName: clients.companyName,
-        categoryId: timeEntries.categoryId,
-        categoryName: activityCategories.name,
         date: timeEntries.date,
         startTime: timeEntries.startTime,
         endTime: timeEntries.endTime,
@@ -554,7 +543,6 @@ export async function listTimeEntries(params: PaginationParams & {
       .leftJoin(users, eq(timeEntries.userId, users.id))
       .leftJoin(projects, eq(timeEntries.projectId, projects.id))
       .leftJoin(clients, eq(projects.clientId, clients.id))
-      .leftJoin(activityCategories, eq(timeEntries.categoryId, activityCategories.id))
       .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
       .where(where)
       .orderBy(desc(timeEntries.date), asc(timeEntries.startTime))

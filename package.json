@@ -5,10 +5,12 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && cp -r src/db/migrations dist/db/migrations",
+    "build": "tsc && cp -r src/db/migrations dist/db/migrations && cp -r src/assets dist/assets",
     "db:migrate": "drizzle-kit migrate",
+    "db:migrate:enum": "tsx src/db/migrate-enum.ts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx src/db/seed.ts",
+    "db:seed:reports": "tsx src/db/seed-reports.ts",
     "start": "node dist/server.js"
   },
   "keywords": [],
