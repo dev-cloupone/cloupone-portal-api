@@ -373,22 +373,36 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
   if (data.project.clientCnpj) clientAddressLines.push(`CNPJ: ${data.project.clientCnpj}`);
 
   const content: Content[] = [
-    // Header: Logo + Company info
+    // Header: Logo + Company info (bordered)
     {
-      columns: [
-        { svg: logoSvg, width: 120 } as unknown as Content,
-        {
-          stack: [
-            { text: CLOUPONE.name, bold: true, fontSize: 10 },
-            { text: CLOUPONE.address, fontSize: 8, color: '#555' },
-            { text: `CEP: ${CLOUPONE.zipCode} - ${CLOUPONE.cityState}`, fontSize: 8, color: '#555' },
-            { text: `Tel: ${CLOUPONE.phone} | ${CLOUPONE.email}`, fontSize: 8, color: '#555' },
-            { text: `CNPJ: ${CLOUPONE.cnpj}`, fontSize: 8, color: '#555' },
-          ],
-          width: '*',
-          alignment: 'right' as const,
-        },
-      ],
+      table: {
+        widths: ['*'],
+        body: [[
+          {
+            columns: [
+              { svg: logoSvg, width: 120 } as unknown as Content,
+              {
+                stack: [
+                  { text: CLOUPONE.name, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: CLOUPONE.address, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `CEP: ${CLOUPONE.zipCode} - ${CLOUPONE.cityState}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `Tel: ${CLOUPONE.phone} | ${CLOUPONE.email}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `CNPJ: ${CLOUPONE.cnpj}`, fontSize: 8, color: '#555' },
+                ],
+                width: '*',
+                alignment: 'right' as const,
+              },
+            ],
+            margin: [5, 5, 5, 5] as [number, number, number, number],
+          },
+        ]],
+      },
+      layout: {
+        hLineWidth: () => 0.5,
+        vLineWidth: () => 0.5,
+        hLineColor: () => '#000',
+        vLineColor: () => '#000',
+      },
       margin: [0, 0, 0, 15] as [number, number, number, number],
     },
     // Title
@@ -397,41 +411,60 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
       margin: [0, 0, 0, 10] as [number, number, number, number],
     },
     {
-      text: 'NOTA DE DÉBITO',
+      text: 'NOTA DE DESPESAS',
       bold: true,
       fontSize: 14,
       alignment: 'center',
       margin: [0, 0, 0, 10] as [number, number, number, number],
     },
-    // Recipient + Emission/Value
+    // Recipient + Emission/Value (bordered)
     {
-      columns: [
-        {
-          stack: [
-            { text: 'DESTINATÁRIO', bold: true, fontSize: 9, color: '#333', margin: [0, 0, 0, 4] as [number, number, number, number] },
-            { text: data.project.clientName, bold: true, fontSize: 10 },
-            ...clientAddressLines.map((line) => ({ text: line, fontSize: 8, color: '#555' })),
-          ],
-          width: '*',
-        },
-        {
-          table: {
-            widths: [70, 80],
-            body: [
-              [
-                { text: 'EMISSÃO', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
-                { text: 'VALOR', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
-              ],
-              [
-                { text: emissionDate, fontSize: 9, alignment: 'center' },
-                { text: formatCurrency(data.grandTotal), fontSize: 9, bold: true, alignment: 'center' },
-              ],
+      table: {
+        widths: ['*'],
+        body: [[
+          {
+            columns: [
+              {
+                stack: [
+                  { text: 'DESTINATÁRIO', bold: true, fontSize: 9, color: '#333', margin: [0, 0, 0, 4] as [number, number, number, number] },
+                  { text: data.project.clientName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  ...clientAddressLines.map((line) => ({ text: line, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] })),
+                ],
+                width: '*',
+              },
+              {
+                table: {
+                  widths: [70, 80],
+                  body: [
+                    [
+                      { text: 'EMISSÃO', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                      { text: 'VALOR', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                    ],
+                    [
+                      { text: emissionDate, fontSize: 9, alignment: 'center' },
+                      { text: formatCurrency(data.grandTotal), fontSize: 9, bold: true, alignment: 'center' },
+                    ],
+                  ],
+                },
+                layout: {
+                  hLineWidth: () => 0.5,
+                  vLineWidth: () => 0.5,
+                  hLineColor: () => '#000',
+                  vLineColor: () => '#000',
+                },
+                width: 'auto' as const,
+              },
             ],
+            margin: [5, 5, 5, 5] as [number, number, number, number],
           },
-          layout: 'lightHorizontalLines',
-          width: 'auto' as const,
-        },
-      ],
+        ]],
+      },
+      layout: {
+        hLineWidth: () => 0.5,
+        vLineWidth: () => 0.5,
+        hLineColor: () => '#000',
+        vLineColor: () => '#000',
+      },
       margin: [0, 0, 0, 10] as [number, number, number, number],
     },
     {
@@ -471,7 +504,7 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
         ]),
         [
           { text: '', colSpan: 3 }, {}, {},
-          { text: `Subtotal ${consultant.consultantName}`, bold: true },
+          { text: 'Subtotal', bold: true },
           { text: formatCurrency(consultant.subtotal), bold: true, alignment: 'right' as const },
         ],
       ];
@@ -482,7 +515,12 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
           widths: [55, '*', 45, 70, 75],
           body: tableBody,
         },
-        layout: 'lightHorizontalLines',
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => '#000',
+          vLineColor: () => '#000',
+        },
         margin: [0, 0, 0, 8] as [number, number, number, number],
       });
     }
@@ -531,9 +569,9 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
     {
       stack: [
         { text: 'Conta para pagamento:', bold: true, fontSize: 9, margin: [0, 0, 0, 3] as [number, number, number, number] },
-        { text: PAYMENT_INFO.name, fontSize: 8 },
-        { text: `Banco: ${PAYMENT_INFO.bank}`, fontSize: 8 },
-        { text: `Agência: ${PAYMENT_INFO.agency}`, fontSize: 8 },
+        { text: PAYMENT_INFO.name, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
+        { text: `Banco: ${PAYMENT_INFO.bank}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
+        { text: `Agência: ${PAYMENT_INFO.agency}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
         { text: `Conta: ${PAYMENT_INFO.account}`, fontSize: 8 },
       ],
     },
