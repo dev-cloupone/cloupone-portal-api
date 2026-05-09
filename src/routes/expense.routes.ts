@@ -15,15 +15,15 @@ router.post('/', expenseController.upsert);
 router.post('/:id/resubmit', expenseController.resubmit);
 router.delete('/:id', expenseController.remove);
 
-// Gestor/Admin endpoints (Phase 4: Approvals)
-router.get('/pending', authorize('super_admin', 'gestor'), expenseController.listPending);
-router.post('/approve', authorize('super_admin', 'gestor'), expenseController.approve);
-router.post('/:id/reject', authorize('super_admin', 'gestor'), expenseController.reject);
-router.post('/:id/revert', authorize('super_admin', 'gestor'), expenseController.revert);
+// Admin endpoints (Phase 4: Approvals)
+router.get('/pending', authorize('super_admin'), expenseController.listPending);
+router.post('/approve', authorize('super_admin'), expenseController.approve);
+router.post('/:id/reject', authorize('super_admin'), expenseController.reject);
+router.post('/:id/revert', authorize('super_admin'), expenseController.revert);
 
-// Gestor/Admin endpoints (Phase 5: Reimbursements)
-router.get('/reimbursements', authorize('super_admin', 'gestor'), expenseController.listReimbursements);
-router.post('/reimburse', authorize('super_admin', 'gestor'), expenseController.markAsReimbursed);
-router.post('/:id/unreimburse', authorize('super_admin', 'gestor'), expenseController.unmarkReimbursement);
+// Admin endpoints (Phase 5: Reimbursements)
+router.get('/reimbursements', authorize('super_admin'), expenseController.listReimbursements);
+router.post('/reimburse', authorize('super_admin'), expenseController.markAsReimbursed);
+router.post('/:id/unreimburse', authorize('super_admin'), expenseController.unmarkReimbursement);
 
 export { router as expenseRoutes };

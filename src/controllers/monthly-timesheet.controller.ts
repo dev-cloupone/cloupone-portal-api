@@ -62,13 +62,13 @@ const approve: RequestHandler = async (req, res, next) => {
   try {
     const { userId, year, month } = yearMonthParamsSchema.parse(req.params);
 
-    // Consultor can only approve their own
-    if (req.userRole === 'consultor' && req.userId !== userId) {
+    // Only super_admin can approve others' timesheets
+    if (req.userRole !== 'super_admin' && req.userId !== userId) {
       throw new AppError('Você não tem permissão para aprovar apontamentos de outro consultor.', 403);
     }
 
-    // Consultants can only approve past months — only admins/gestors can approve early
-    if (req.userRole === 'consultor') {
+    // Non-admins can only approve past months — only admins can approve early
+    if (req.userRole !== 'super_admin') {
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
