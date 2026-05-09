@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { env } from './config/env';
 import { db } from './db';
+import { migrateEnums } from './db/migrate-enums-auto';
 import { errorHandler } from './middlewares/error-handler';
 import { authRoutes } from './routes/auth.routes';
 import { usersRoutes } from './routes/users.routes';
@@ -19,6 +20,8 @@ import { consultantRoutes } from './routes/consultant.routes';
 import { timeEntryRoutes } from './routes/time-entry.routes';
 import { dashboardRoutes } from './routes/dashboard.routes';
 import { reportManagementRoutes } from './routes/report-management.routes';
+import { companyInfoRoutes } from './routes/company-info.routes';
+import { bankAccountsAdminRoutes, bankAccountsPublicRoutes } from './routes/bank-accounts.routes';
 
 import { ticketRoutes } from './routes/ticket.routes';
 import { expenseCategoryRoutes } from './routes/expense-category.routes';
@@ -80,6 +83,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 
 app.use('/api/admin/settings', adminSettingsRoutes);
+app.use('/api/admin/company-info', companyInfoRoutes);
+app.use('/api/admin/bank-accounts', bankAccountsAdminRoutes);
+app.use('/api/bank-accounts', bankAccountsPublicRoutes);
 app.use('/api/settings/public', publicSettingsRoutes);
 app.use('/api/uploads', uploadsRoutes);
 app.use('/api/clients', clientRoutes);
@@ -101,7 +107,9 @@ app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 app.use(errorHandler);
 
 async function start() {
-  await migrate(db, { migrationsFolder: path.resolve(__dirname, 'db/migrations') });
+  const migrationsFolder = path.resolve(__dirname, 'db/migrations');
+  await migrateEnums(migrationsFolder, env.DATABASE_URL);
+  await migrate(db, { migrationsFolder });
   logger.info('Database migrations applied');
 
   app.listen(env.PORT, '0.0.0.0', () => {

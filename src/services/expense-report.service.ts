@@ -7,7 +7,7 @@ const PdfPrinter = require('pdfmake/js/Printer').default;
 const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
-import { expenses, projectExpensePeriods, projectExpenseCategories, users, projects, clients } from '../db/schema';
+import { expenses, projectExpensePeriods, projectExpenseCategories, users, projects, clients, companyInfo, bankAccounts } from '../db/schema';
 import { AppError } from '../utils/app-error';
 
 const fonts = {
@@ -41,6 +41,7 @@ export interface ExpenseReportFilters {
   weekIds: string[];
   consultantId?: string;
   view: 'client' | 'consultant';
+  bankAccountId?: string;
 }
 
 interface ExpenseEntry {
@@ -223,27 +224,13 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
   return { project, view: filters.view, weeks, grandTotal, kmRateLegend };
 }
 
-const CLOUPONE = {
-  name: 'CLOUP ONE SOLUTIONS LTDA',
-  address: 'Av. João Sacavém, 571 - Sala 909',
-  zipCode: '88.371-438',
-  cityState: 'Centro - Navegantes - Santa Catarina',
-  phone: '47 99119-0089',
-  email: 'financeiro@cloupone.com.br',
-  cnpj: '51.839.474/0001-62',
-};
-
-const PAYMENT_INFO = {
-  name: 'Cloup One Solutions',
-  bank: '0260 - Nu Pagamentos S.A.',
-  agency: '0001',
-  account: '68956849-1',
-};
-
 export async function generateExpenseReportPdf(filters: ExpenseReportFilters): Promise<Buffer> {
   const data = await getExpenseReportData(filters);
   if (data.view === 'client') {
-    return generateClientPdf(data);
+    if (!filters.bankAccountId) {
+      throw new AppError('Conta bancaria e obrigatoria para relatorio na visao cliente', 400);
+    }
+    return generateClientPdf(data, filters.bankAccountId);
   }
   return generateConsultantPdf(data);
 }
@@ -354,7 +341,24 @@ function generateConsultantPdf(data: ExpenseReportResult): Promise<Buffer> {
   return pdfToBuffer(docDefinition);
 }
 
-function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
+async function generateClientPdf(data: ExpenseReportResult, bankAccountId: string): Promise<Buffer> {
+  // Buscar dados da empresa
+  const company = await db.query.companyInfo.findFirst();
+  if (!company) {
+    throw new AppError('Dados da empresa nao configurados. Acesse Configuracoes > Dados da Empresa.', 400);
+  }
+
+  // Buscar conta bancaria
+  const bankAccount = await db.query.bankAccounts.findFirst({
+    where: eq(bankAccounts.id, bankAccountId),
+  });
+  if (!bankAccount) {
+    throw new AppError('Conta bancaria nao encontrada', 404);
+  }
+  if (!bankAccount.isActive) {
+    throw new AppError('Conta bancaria selecionada esta inativa', 400);
+  }
+
   const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
   const logoSvg = fs.readFileSync(logoSvgPath, 'utf-8');
 
@@ -383,11 +387,11 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
               { svg: logoSvg, width: 120 } as unknown as Content,
               {
                 stack: [
-                  { text: CLOUPONE.name, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
-                  { text: CLOUPONE.address, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
-                  { text: `CEP: ${CLOUPONE.zipCode} - ${CLOUPONE.cityState}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
-                  { text: `Tel: ${CLOUPONE.phone} | ${CLOUPONE.email}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
-                  { text: `CNPJ: ${CLOUPONE.cnpj}`, fontSize: 8, color: '#555' },
+                  { text: company.companyName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: company.address, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `CEP: ${company.zipCode} - ${company.cityState}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `Tel: ${company.phone ?? ''} | ${company.email ?? ''}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `CNPJ: ${company.cnpj}`, fontSize: 8, color: '#555' },
                 ],
                 width: '*',
                 alignment: 'right' as const,
@@ -569,10 +573,10 @@ function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
     {
       stack: [
         { text: 'Conta para pagamento:', bold: true, fontSize: 9, margin: [0, 0, 0, 3] as [number, number, number, number] },
-        { text: PAYMENT_INFO.name, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
-        { text: `Banco: ${PAYMENT_INFO.bank}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
-        { text: `Agência: ${PAYMENT_INFO.agency}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
-        { text: `Conta: ${PAYMENT_INFO.account}`, fontSize: 8 },
+        { text: bankAccount.holderName, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
+        { text: `Banco: ${bankAccount.bankName}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
+        { text: `Agencia: ${bankAccount.agency}`, fontSize: 8, margin: [0, 0, 0, 2] as [number, number, number, number] },
+        { text: `Conta: ${bankAccount.accountNumber}`, fontSize: 8 },
       ],
     },
   );

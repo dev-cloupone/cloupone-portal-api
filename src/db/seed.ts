@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { db } from './index';
-import { users, platformSettings, expenseCategoryTemplates, reports } from './schema';
+import { users, platformSettings, expenseCategoryTemplates, reports, companyInfo, bankAccounts } from './schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
@@ -69,6 +69,40 @@ async function seed() {
     isActive: true,
   }).onConflictDoNothing();
   logger.info('Reports seeded');
+
+  // Seed company info
+  const existingCompany = await db.query.companyInfo.findFirst();
+  if (!existingCompany) {
+    const admin = await db.query.users.findFirst({
+      where: eq(users.role, 'super_admin'),
+    });
+    if (admin) {
+      await db.insert(companyInfo).values({
+        companyName: 'CLOUP ONE SOLUTIONS LTDA',
+        cnpj: '51.839.474/0001-62',
+        address: 'Av. Joao Sacavem, 571 - Sala 909',
+        zipCode: '88.371-438',
+        cityState: 'Centro - Navegantes - Santa Catarina',
+        phone: '47 99119-0089',
+        email: 'financeiro@cloupone.com.br',
+        updatedBy: admin.id,
+      }).onConflictDoNothing();
+      logger.info('Company info seeded');
+
+      // Seed default bank account
+      await db.insert(bankAccounts).values({
+        label: 'NuBank Principal',
+        holderName: 'Cloup One Solutions',
+        bankName: '0260 - Nu Pagamentos S.A.',
+        agency: '0001',
+        accountNumber: '68956849-1',
+        accountType: 'corrente',
+        isActive: true,
+        updatedBy: admin.id,
+      }).onConflictDoNothing();
+      logger.info('Bank account seeded');
+    }
+  }
 
   process.exit(0);
 }
