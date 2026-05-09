@@ -49,6 +49,9 @@ interface ExpenseEntry {
   description: string;
   amount: number;
   consultantName: string;
+  kmQuantity: number | null;
+  kmRate: number | null;
+  isKmCategory: boolean;
 }
 
 interface ConsultantGroup {
@@ -67,16 +70,35 @@ interface WeekGroup {
 }
 
 export interface ExpenseReportResult {
-  project: { id: string; name: string; clientName: string };
+  project: {
+    id: string;
+    name: string;
+    clientName: string;
+    clientCnpj: string | null;
+    clientAddress: string | null;
+    clientCity: string | null;
+    clientState: string | null;
+    clientZipCode: string | null;
+  };
   view: 'client' | 'consultant';
   weeks: WeekGroup[];
   grandTotal: number;
+  kmRateLegend: string | null;
 }
 
 export async function getExpenseReportData(filters: ExpenseReportFilters): Promise<ExpenseReportResult> {
   // 1. Buscar projeto
   const [project] = await db
-    .select({ id: projects.id, name: projects.name, clientName: clients.companyName })
+    .select({
+      id: projects.id,
+      name: projects.name,
+      clientName: clients.companyName,
+      clientCnpj: clients.cnpj,
+      clientAddress: clients.address,
+      clientCity: clients.city,
+      clientState: clients.state,
+      clientZipCode: clients.zipCode,
+    })
     .from(projects)
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .where(eq(projects.id, filters.projectId))
@@ -121,6 +143,9 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
       description: expenses.description,
       amount: expenses.amount,
       clientChargeAmount: expenses.clientChargeAmount,
+      kmQuantity: expenses.kmQuantity,
+      categoryKmRate: projectExpenseCategories.kmRate,
+      categoryIsKmCategory: projectExpenseCategories.isKmCategory,
     })
     .from(expenses)
     .leftJoin(users, eq(expenses.consultantUserId, users.id))
@@ -156,6 +181,9 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
         description: e.description || '-',
         amount: value,
         consultantName: cName,
+        kmQuantity: e.categoryIsKmCategory ? Number(e.kmQuantity) : null,
+        kmRate: e.categoryIsKmCategory ? Number(e.categoryKmRate) : null,
+        isKmCategory: e.categoryIsKmCategory ?? false,
       });
       group.subtotal += value;
       consultantMap.set(cId, group);
@@ -174,17 +202,57 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
     });
   }
 
-  return { project, view: filters.view, weeks, grandTotal };
+  let kmRateLegend: string | null = null;
+  if (filters.view === 'client') {
+    const [kmCat] = await db
+      .select({ kmRate: projectExpenseCategories.kmRate })
+      .from(projectExpenseCategories)
+      .where(and(
+        eq(projectExpenseCategories.projectId, filters.projectId),
+        eq(projectExpenseCategories.isKmCategory, true),
+        eq(projectExpenseCategories.isActive, true),
+      ))
+      .limit(1);
+    if (kmCat?.kmRate) {
+      kmRateLegend = Number(kmCat.kmRate).toLocaleString('pt-BR', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      });
+    }
+  }
+
+  return { project, view: filters.view, weeks, grandTotal, kmRateLegend };
 }
+
+const CLOUPONE = {
+  name: 'CLOUP ONE SOLUTIONS LTDA',
+  address: 'Av. João Sacavém, 571 - Sala 909',
+  zipCode: '88.371-438',
+  cityState: 'Centro - Navegantes - Santa Catarina',
+  phone: '47 99119-0089',
+  email: 'financeiro@cloupone.com.br',
+  cnpj: '51.839.474/0001-62',
+};
+
+const PAYMENT_INFO = {
+  name: 'Cloup One Solutions',
+  bank: '0260 - Nu Pagamentos S.A.',
+  agency: '0001',
+  account: '68956849-1',
+};
 
 export async function generateExpenseReportPdf(filters: ExpenseReportFilters): Promise<Buffer> {
   const data = await getExpenseReportData(filters);
+  if (data.view === 'client') {
+    return generateClientPdf(data);
+  }
+  return generateConsultantPdf(data);
+}
 
+function generateConsultantPdf(data: ExpenseReportResult): Promise<Buffer> {
   const periodRange = data.weeks.length > 0
     ? `${formatPeriod(data.weeks[0].weekStart, data.weeks[data.weeks.length - 1].weekEnd)}`
     : '';
 
-  // Logo SVG (versão escura para PDF)
   const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
   const logoSvg = fs.readFileSync(logoSvgPath, 'utf-8');
 
@@ -192,7 +260,7 @@ export async function generateExpenseReportPdf(filters: ExpenseReportFilters): P
     { svg: logoSvg, width: 140, margin: [0, 0, 0, 10] as [number, number, number, number] } as unknown as Content,
     { text: 'Relatório de Despesas', style: 'title' },
     { text: `Projeto: ${data.project.name} (${data.project.clientName})`, style: 'subtitle' },
-    { text: `Visão: ${data.view === 'client' ? 'Cliente' : 'Consultor'} | Período: ${periodRange}`, style: 'subtitle' },
+    { text: `Visão: Consultor | Período: ${periodRange}`, style: 'subtitle' },
   ];
 
   for (const week of data.weeks) {
@@ -236,7 +304,6 @@ export async function generateExpenseReportPdf(filters: ExpenseReportFilters): P
       });
     }
 
-    // Week total
     content.push({
       columns: [
         { text: `Total da Semana`, bold: true, width: '*' },
@@ -246,7 +313,6 @@ export async function generateExpenseReportPdf(filters: ExpenseReportFilters): P
     });
   }
 
-  // Grand total
   content.push(
     {
       canvas: [{ type: 'line', x1: 0, y1: 5, x2: 515, y2: 5, lineWidth: 2 }],
@@ -279,6 +345,213 @@ export async function generateExpenseReportPdf(filters: ExpenseReportFilters): P
       brand: { fontSize: 14, bold: true, color: '#10b981', margin: [0, 0, 0, 5] },
       title: { fontSize: 16, bold: true, margin: [0, 0, 0, 5] },
       subtitle: { fontSize: 10, color: '#666', margin: [0, 0, 0, 3] },
+      sectionTitle: { fontSize: 11, bold: true, margin: [0, 15, 0, 8], color: '#333' },
+      consultantTitle: { fontSize: 9, bold: true, margin: [0, 4, 0, 2], color: '#555' },
+      tableHeader: { bold: true, fontSize: 8, fillColor: '#f0f0f0' },
+    },
+  };
+
+  return pdfToBuffer(docDefinition);
+}
+
+function generateClientPdf(data: ExpenseReportResult): Promise<Buffer> {
+  const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
+  const logoSvg = fs.readFileSync(logoSvgPath, 'utf-8');
+
+  const now = new Date();
+  const emissionDate = now.toLocaleDateString('pt-BR');
+  const generatedAt = `Gerado em ${emissionDate} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+
+  // Build client address lines
+  const clientAddressLines: string[] = [];
+  if (data.project.clientAddress) clientAddressLines.push(data.project.clientAddress);
+  const cityStateParts: string[] = [];
+  if (data.project.clientCity) cityStateParts.push(data.project.clientCity);
+  if (data.project.clientState) cityStateParts.push(data.project.clientState);
+  if (cityStateParts.length > 0) clientAddressLines.push(cityStateParts.join(' - '));
+  if (data.project.clientZipCode) clientAddressLines.push(`CEP: ${data.project.clientZipCode}`);
+  if (data.project.clientCnpj) clientAddressLines.push(`CNPJ: ${data.project.clientCnpj}`);
+
+  const content: Content[] = [
+    // Header: Logo + Company info
+    {
+      columns: [
+        { svg: logoSvg, width: 120 } as unknown as Content,
+        {
+          stack: [
+            { text: CLOUPONE.name, bold: true, fontSize: 10 },
+            { text: CLOUPONE.address, fontSize: 8, color: '#555' },
+            { text: `CEP: ${CLOUPONE.zipCode} - ${CLOUPONE.cityState}`, fontSize: 8, color: '#555' },
+            { text: `Tel: ${CLOUPONE.phone} | ${CLOUPONE.email}`, fontSize: 8, color: '#555' },
+            { text: `CNPJ: ${CLOUPONE.cnpj}`, fontSize: 8, color: '#555' },
+          ],
+          width: '*',
+          alignment: 'right' as const,
+        },
+      ],
+      margin: [0, 0, 0, 15] as [number, number, number, number],
+    },
+    // Title
+    {
+      canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#10b981' }],
+      margin: [0, 0, 0, 10] as [number, number, number, number],
+    },
+    {
+      text: 'NOTA DE DÉBITO',
+      bold: true,
+      fontSize: 14,
+      alignment: 'center',
+      margin: [0, 0, 0, 10] as [number, number, number, number],
+    },
+    // Recipient + Emission/Value
+    {
+      columns: [
+        {
+          stack: [
+            { text: 'DESTINATÁRIO', bold: true, fontSize: 9, color: '#333', margin: [0, 0, 0, 4] as [number, number, number, number] },
+            { text: data.project.clientName, bold: true, fontSize: 10 },
+            ...clientAddressLines.map((line) => ({ text: line, fontSize: 8, color: '#555' })),
+          ],
+          width: '*',
+        },
+        {
+          table: {
+            widths: [70, 80],
+            body: [
+              [
+                { text: 'EMISSÃO', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                { text: 'VALOR', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+              ],
+              [
+                { text: emissionDate, fontSize: 9, alignment: 'center' },
+                { text: formatCurrency(data.grandTotal), fontSize: 9, bold: true, alignment: 'center' },
+              ],
+            ],
+          },
+          layout: 'lightHorizontalLines',
+          width: 'auto' as const,
+        },
+      ],
+      margin: [0, 0, 0, 10] as [number, number, number, number],
+    },
+    {
+      text: `Projeto: ${data.project.name}`,
+      bold: true,
+      fontSize: 10,
+      color: '#333',
+      margin: [0, 5, 0, 10] as [number, number, number, number],
+    },
+  ];
+
+  // Expense tables per week/consultant
+  for (const week of data.weeks) {
+    content.push(
+      { text: `Semana: ${formatPeriod(week.weekStart, week.weekEnd)}`, style: 'sectionTitle' },
+    );
+
+    for (const consultant of week.consultants) {
+      content.push(
+        { text: consultant.consultantName, style: 'consultantTitle' },
+      );
+
+      const tableBody: TableCell[][] = [
+        [
+          { text: 'Data', style: 'tableHeader' },
+          { text: 'Descrição', style: 'tableHeader' },
+          { text: 'Quant.', style: 'tableHeader', alignment: 'center' },
+          { text: 'Valor Unit.', style: 'tableHeader', alignment: 'right' },
+          { text: 'Valor Total', style: 'tableHeader', alignment: 'right' },
+        ],
+        ...consultant.entries.map((e) => [
+          formatDate(e.date),
+          e.category,
+          { text: e.isKmCategory ? String(e.kmQuantity ?? 1) : '1', alignment: 'center' as const },
+          { text: formatCurrency(e.isKmCategory && e.kmRate ? e.kmRate : e.amount), alignment: 'right' as const },
+          { text: formatCurrency(e.amount), alignment: 'right' as const },
+        ]),
+        [
+          { text: '', colSpan: 3 }, {}, {},
+          { text: `Subtotal ${consultant.consultantName}`, bold: true },
+          { text: formatCurrency(consultant.subtotal), bold: true, alignment: 'right' as const },
+        ],
+      ];
+
+      content.push({
+        table: {
+          headerRows: 1,
+          widths: [55, '*', 45, 70, 75],
+          body: tableBody,
+        },
+        layout: 'lightHorizontalLines',
+        margin: [0, 0, 0, 8] as [number, number, number, number],
+      });
+    }
+
+    content.push({
+      columns: [
+        { text: 'Total da Semana', bold: true, width: '*' },
+        { text: formatCurrency(week.weekTotal), bold: true, width: 100, alignment: 'right' },
+      ],
+      margin: [0, 2, 0, 10] as [number, number, number, number],
+    });
+  }
+
+  // Grand total
+  content.push(
+    {
+      canvas: [{ type: 'line', x1: 0, y1: 5, x2: 515, y2: 5, lineWidth: 2 }],
+      margin: [0, 5, 0, 5] as [number, number, number, number],
+    },
+    {
+      columns: [
+        { text: 'TOTAL GERAL', bold: true, fontSize: 12, width: '*' },
+        { text: formatCurrency(data.grandTotal), bold: true, fontSize: 12, width: 120, alignment: 'right' },
+      ],
+      margin: [0, 0, 0, 15] as [number, number, number, number],
+    },
+  );
+
+  // km legend (conditional)
+  if (data.kmRateLegend) {
+    content.push({
+      text: `* Valor do kilômetro rodado = R$ ${data.kmRateLegend}/KM`,
+      fontSize: 8,
+      italics: true,
+      color: '#666',
+      margin: [0, 0, 0, 10] as [number, number, number, number],
+    });
+  }
+
+  // Payment info
+  content.push(
+    {
+      canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: '#ccc' }],
+      margin: [0, 5, 0, 8] as [number, number, number, number],
+    },
+    {
+      stack: [
+        { text: 'Conta para pagamento:', bold: true, fontSize: 9, margin: [0, 0, 0, 3] as [number, number, number, number] },
+        { text: PAYMENT_INFO.name, fontSize: 8 },
+        { text: `Banco: ${PAYMENT_INFO.bank}`, fontSize: 8 },
+        { text: `Agência: ${PAYMENT_INFO.agency}`, fontSize: 8 },
+        { text: `Conta: ${PAYMENT_INFO.account}`, fontSize: 8 },
+      ],
+    },
+  );
+
+  const docDefinition: TDocumentDefinitions = {
+    defaultStyle: { font: 'Helvetica', fontSize: 9 },
+    pageSize: 'A4',
+    pageMargins: [40, 60, 40, 60],
+    content,
+    footer: (currentPage: number, pageCount: number) => ({
+      columns: [
+        { text: generatedAt, fontSize: 7, color: '#999', margin: [40, 0, 0, 0] },
+        { text: `Página ${currentPage} de ${pageCount}`, fontSize: 7, color: '#999', alignment: 'right', margin: [0, 0, 40, 0] },
+      ],
+      margin: [0, 20, 0, 0] as [number, number, number, number],
+    }),
+    styles: {
       sectionTitle: { fontSize: 11, bold: true, margin: [0, 15, 0, 8], color: '#333' },
       consultantTitle: { fontSize: 9, bold: true, margin: [0, 4, 0, 2], color: '#555' },
       tableHeader: { bold: true, fontSize: 8, fillColor: '#f0f0f0' },
