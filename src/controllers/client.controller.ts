@@ -13,6 +13,10 @@ const createClientSchema = z.object({
   contactEmail: z.string().email(V.emailInvalid).optional(),
   contactPhone: z.string().max(20, V.max('Telefone', 20)).optional(),
   notes: z.string().optional(),
+  address: z.string().max(255, V.max('Endereço', 255)).optional(),
+  city: z.string().max(100, V.max('Cidade', 100)).optional(),
+  state: z.string().max(2, V.max('Estado', 2)).optional(),
+  zipCode: z.string().max(10, V.max('CEP', 10)).optional(),
 });
 
 const updateClientSchema = createClientSchema.partial();

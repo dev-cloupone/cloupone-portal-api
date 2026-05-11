@@ -16,3 +16,5 @@ export { projectPhases } from './project-phases';
 export { subphaseStatusEnum, projectSubphases } from './project-subphases';
 export { subphaseConsultants } from './subphase-consultants';
 export { reports, reportPermissions } from './reports';
+export { companyInfo } from './company-info';
+export { accountTypeEnum, bankAccounts } from './bank-accounts';

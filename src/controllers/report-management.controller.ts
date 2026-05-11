@@ -10,6 +10,7 @@ const expenseReportSchema = z.object({
   ),
   consultantId: z.string().uuid().optional(),
   view: z.enum(['client', 'consultant']),
+  bankAccountId: z.string().uuid().optional(),
 });
 
 const list: RequestHandler = async (req, res, next) => {

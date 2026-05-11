@@ -40,6 +40,10 @@ export async function createClient(data: {
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
 }) {
   if (data.cnpj) {
     const [existing] = await db.select({ id: clients.id }).from(clients).where(eq(clients.cnpj, data.cnpj)).limit(1);
@@ -57,6 +61,10 @@ export async function updateClient(id: string, data: Partial<{
   contactEmail: string;
   contactPhone: string;
   notes: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
 }>) {
   const [existing] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
   if (!existing) throw new AppError(CLIENT.NOT_FOUND, 404);
