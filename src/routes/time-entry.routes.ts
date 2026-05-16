@@ -11,6 +11,7 @@ router.use(auth, authenticatedRateLimit);
 // Consultor endpoints (any authenticated user with entries)
 router.get('/month', timeEntryController.getMonthEntries);
 router.get('/week', timeEntryController.getWeekEntries);
+router.get('/list', timeEntryController.listView);
 router.post('/', timeEntryController.upsert);
 router.delete('/:id', timeEntryController.remove);
 

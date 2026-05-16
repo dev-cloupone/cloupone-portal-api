@@ -1,4 +1,4 @@
-import { eq, and, count as drizzleCount, desc } from 'drizzle-orm';
+import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { consultantProfiles, users, projectAllocations, projects, clients } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -109,6 +109,39 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
     .returning();
 
   return updated;
+}
+
+export async function listConsultantsByScope(userId: string, userRole: string) {
+  if (userRole === 'super_admin') {
+    return db.select({
+      id: users.id,
+      name: users.name,
+    })
+      .from(users)
+      .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
+      .orderBy(users.name);
+  }
+
+  if (userRole === 'gestor') {
+    const gestorProjects = await db.select({ projectId: projectAllocations.projectId })
+      .from(projectAllocations)
+      .where(eq(projectAllocations.userId, userId));
+
+    const projectIds = gestorProjects.map(p => p.projectId);
+    if (projectIds.length === 0) return [];
+
+    return db.selectDistinct({
+      id: users.id,
+      name: users.name,
+    })
+      .from(users)
+      .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
+      .innerJoin(projectAllocations, eq(projectAllocations.userId, users.id))
+      .where(inArray(projectAllocations.projectId, projectIds))
+      .orderBy(users.name);
+  }
+
+  return [];
 }
 
 export async function listConsultantProjects(userId: string) {
