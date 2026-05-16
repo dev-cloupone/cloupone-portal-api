@@ -88,10 +88,37 @@ const list: RequestHandler = async (req, res, next) => {
   }
 };
 
+const listView: RequestHandler = async (req, res, next) => {
+  try {
+    const month = req.query.month as string;
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ error: 'month param required (YYYY-MM)' });
+    }
+
+    const result = await timeEntryService.listForView(
+      {
+        month,
+        consultantId: req.query.consultantId as string | undefined,
+        projectId: req.query.projectId as string | undefined,
+        subphaseId: req.query.subphaseId as string | undefined,
+        ticketId: req.query.ticketId as string | undefined,
+        all: req.query.all === 'true',
+      },
+      req.userId!,
+      req.userRole!,
+    );
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const timeEntryController = {
   getMonthEntries,
   getWeekEntries,
   upsert,
   remove,
   list,
+  listView,
 };

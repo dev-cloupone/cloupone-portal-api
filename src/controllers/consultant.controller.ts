@@ -73,4 +73,13 @@ const listProjects: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const consultantController = { list, getByUserId, create, update, listProjects };
+const listByScope: RequestHandler = async (req, res, next) => {
+  try {
+    const data = await consultantService.listConsultantsByScope(req.userId!, req.userRole!);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const consultantController = { list, getByUserId, create, update, listProjects, listByScope };

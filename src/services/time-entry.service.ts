@@ -1,4 +1,4 @@
-import { eq, and, between, count as drizzleCount, desc, asc, sql } from 'drizzle-orm';
+import { eq, and, between, count as drizzleCount, desc, asc, sql, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { timeEntries, projects, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -552,4 +552,94 @@ export async function listTimeEntries(params: PaginationParams & {
   ]);
 
   return { data, meta: buildMeta(total, { page, limit }) };
+}
+
+// --- List view for consolidated timesheet page ---
+
+interface ListViewParams {
+  month: string;
+  consultantId?: string;
+  projectId?: string;
+  subphaseId?: string;
+  ticketId?: string;
+  all?: boolean;
+}
+
+async function getGestorProjectIds(userId: string): Promise<string[]> {
+  const rows = await db.select({ projectId: projectAllocations.projectId })
+    .from(projectAllocations)
+    .where(eq(projectAllocations.userId, userId));
+  return rows.map(r => r.projectId);
+}
+
+export async function listForView(params: ListViewParams, userId: string, userRole: string) {
+  const { month, consultantId, projectId, subphaseId, ticketId, all } = params;
+  const [yearStr, monthStr] = month.split('-');
+  const year = parseInt(yearStr);
+  const monthNum = parseInt(monthStr) - 1;
+  const firstDay = new Date(year, monthNum, 1);
+  const lastDay = new Date(year, monthNum + 1, 0);
+  const startDate = firstDay.toISOString().split('T')[0];
+  const endDate = lastDay.toISOString().split('T')[0];
+
+  const conditions = [
+    gte(timeEntries.date, startDate),
+    lte(timeEntries.date, endDate),
+  ];
+
+  // Scope by role
+  if (userRole === 'consultor') {
+    conditions.push(eq(timeEntries.userId, userId));
+  } else if (userRole === 'gestor') {
+    const gestorProjectIds = await getGestorProjectIds(userId);
+    if (gestorProjectIds.length === 0) {
+      return { entries: [], totalHours: '0.00' };
+    }
+    conditions.push(inArray(timeEntries.projectId, gestorProjectIds));
+    if (consultantId && !all) {
+      conditions.push(eq(timeEntries.userId, consultantId));
+    } else if (!all) {
+      conditions.push(eq(timeEntries.userId, userId));
+    }
+  } else if (userRole === 'super_admin') {
+    if (consultantId && !all) {
+      conditions.push(eq(timeEntries.userId, consultantId));
+    } else if (!all) {
+      conditions.push(eq(timeEntries.userId, userId));
+    }
+  }
+
+  // Optional filters
+  if (projectId) conditions.push(eq(timeEntries.projectId, projectId));
+  if (subphaseId) conditions.push(eq(timeEntries.subphaseId, subphaseId));
+  if (ticketId) conditions.push(eq(timeEntries.ticketId, ticketId));
+
+  const entries = await db.select({
+    id: timeEntries.id,
+    date: timeEntries.date,
+    startTime: timeEntries.startTime,
+    endTime: timeEntries.endTime,
+    hours: timeEntries.hours,
+    description: timeEntries.description,
+    consultantId: users.id,
+    consultantName: users.name,
+    projectId: projects.id,
+    projectName: projects.name,
+    subphaseId: projectSubphases.id,
+    subphaseName: projectSubphases.name,
+    ticketId: tickets.id,
+    ticketCode: tickets.code,
+    ticketTitle: tickets.title,
+  })
+    .from(timeEntries)
+    .innerJoin(users, eq(timeEntries.userId, users.id))
+    .innerJoin(projects, eq(timeEntries.projectId, projects.id))
+    .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
+    .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
+    .where(and(...conditions))
+    .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
+
+  const totalHours = entries.reduce((sum, e) => sum + Number(e.hours), 0).toFixed(2);
+
+  return { entries, totalHours };
 }
