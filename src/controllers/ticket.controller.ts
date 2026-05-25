@@ -7,6 +7,12 @@ import { getUserClientId } from '../services/user.service';
 
 const idSchema = z.string().uuid();
 
+const ccEmailsSchema = z
+  .array(z.string().email(V.emailInvalid))
+  .max(10, 'Máximo de 10 emails em cópia.')
+  .transform((emails) => [...new Set(emails.map((e) => e.toLowerCase().trim()))])
+  .optional();
+
 const createTicketSchema = z.object({
   projectId: z.string().uuid(V.uuidInvalid('Projeto')),
   type: z.enum(['system_error', 'question', 'improvement', 'security'], { message: V.enumInvalid('Tipo') }),
@@ -18,6 +24,7 @@ const createTicketSchema = z.object({
   assignedTo: z.string().uuid().nullable().optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, V.dateInvalid).nullable().optional(),
   estimatedHours: z.number().positive().nullable().optional(),
+  ccEmails: ccEmailsSchema,
 });
 
 const updateTicketSchema = z.object({
@@ -29,6 +36,7 @@ const updateTicketSchema = z.object({
   description: z.string().optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   estimatedHours: z.number().positive().nullable().optional(),
+  ccEmails: ccEmailsSchema,
 });
 
 const listTicketsSchema = z.object({

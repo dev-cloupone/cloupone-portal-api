@@ -105,6 +105,7 @@ function buildTicketSelect() {
     description: tickets.description,
     metadata: tickets.metadata,
     isVisibleToClient: tickets.isVisibleToClient,
+    ccEmails: tickets.ccEmails,
     dueDate: tickets.dueDate,
     estimatedHours: tickets.estimatedHours,
     resolvedAt: tickets.resolvedAt,
@@ -140,6 +141,7 @@ export async function createTicket(data: {
   assignedTo?: string | null;
   dueDate?: string | null;
   estimatedHours?: number | null;
+  ccEmails?: string[];
 }) {
   await assertUserHasProjectAccess(data.createdBy, data.createdByRole, data.projectId, data.createdByClientId);
 
@@ -160,6 +162,7 @@ export async function createTicket(data: {
     isVisibleToClient,
     dueDate: data.dueDate,
     estimatedHours: data.estimatedHours != null ? String(data.estimatedHours) : null,
+    ccEmails: data.ccEmails ?? [],
   }).returning();
 
   await recordHistory(ticket.id, data.createdBy, 'status', null, 'open');
@@ -190,6 +193,7 @@ async function getTicketByIdInternal(ticketId: string) {
       description: tickets.description,
       metadata: tickets.metadata,
       isVisibleToClient: tickets.isVisibleToClient,
+      ccEmails: tickets.ccEmails,
       dueDate: tickets.dueDate,
       estimatedHours: tickets.estimatedHours,
       resolvedAt: tickets.resolvedAt,
@@ -321,6 +325,7 @@ export async function listTickets(params: {
         description: tickets.description,
         metadata: tickets.metadata,
         isVisibleToClient: tickets.isVisibleToClient,
+        ccEmails: tickets.ccEmails,
         dueDate: tickets.dueDate,
         estimatedHours: tickets.estimatedHours,
         resolvedAt: tickets.resolvedAt,
@@ -364,6 +369,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   description: string;
   dueDate: string | null;
   estimatedHours: number | null;
+  ccEmails: string[];
 }>) {
   const ticket = await getTicketByIdInternal(ticketId);
   if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
@@ -469,6 +475,18 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     if (data.estimatedHours !== currentHours) {
       updateData.estimatedHours = data.estimatedHours != null ? String(data.estimatedHours) : null;
       await recordHistory(ticketId, userId, 'estimated_hours', currentHours != null ? String(currentHours) : 'Nenhum', data.estimatedHours != null ? String(data.estimatedHours) : 'Nenhum');
+    }
+  }
+
+  // CC Emails
+  if (data.ccEmails !== undefined) {
+    const oldCc = ticket.ccEmails || [];
+    const newCc = data.ccEmails;
+    const oldSorted = [...oldCc].sort().join(', ');
+    const newSorted = [...newCc].sort().join(', ');
+    if (oldSorted !== newSorted) {
+      updateData.ccEmails = newCc;
+      await recordHistory(ticketId, userId, 'cc_emails', oldSorted || 'Nenhum', newSorted || 'Nenhum');
     }
   }
 

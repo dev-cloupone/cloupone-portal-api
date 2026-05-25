@@ -2,7 +2,7 @@ import { buildEmailLayout } from '../utils/email-layout';
 import { escapeHtml } from '../utils/escape-html';
 
 interface TicketAssignedEmailParams {
-  consultantName: string;
+  consultantName?: string;
   ticketCode: string;
   ticketTitle: string;
   projectName: string;
@@ -11,12 +11,13 @@ interface TicketAssignedEmailParams {
 }
 
 export function buildTicketAssignedEmail({ consultantName, ticketCode, ticketTitle, projectName, assignedByName, ticketUrl }: TicketAssignedEmailParams): { subject: string; html: string; text: string } {
+  const isPersonal = !!consultantName;
+
   return {
-    subject: `Cloup One | [${ticketCode}] Ticket atribuído a você: ${ticketTitle}`,
+    subject: `Cloup One | [${ticketCode}] Ticket atribuído${isPersonal ? ' a você' : ''}: ${ticketTitle}`,
     text: [
-      `Olá, ${consultantName}!`,
-      '',
-      `O ticket ${ticketCode} "${ticketTitle}" do projeto "${projectName}" foi atribuído a você por ${assignedByName}.`,
+      ...(isPersonal ? [`Olá, ${consultantName}!`, ''] : []),
+      `O ticket ${ticketCode} "${ticketTitle}" do projeto "${projectName}" foi atribuído${isPersonal ? ' a você' : ''} por ${assignedByName}.`,
       '',
       `Acesse o ticket: ${ticketUrl}`,
     ].join('\n'),
@@ -24,10 +25,10 @@ export function buildTicketAssignedEmail({ consultantName, ticketCode, ticketTit
       title: `Ticket Atribuído - ${projectName}`,
       body: `
         <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#0F172A;">
-          Ticket Atribuído a Você
+          Ticket Atribuído${isPersonal ? ' a Você' : ''}
         </h2>
         <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6;">
-          Olá, <strong>${escapeHtml(consultantName)}</strong>! Um ticket foi atribuído a você.
+          ${isPersonal ? `Olá, <strong>${escapeHtml(consultantName)}</strong>! Um ticket foi atribuído a você.` : `O ticket foi atribuído por <strong>${escapeHtml(assignedByName)}</strong>.`}
         </p>
         <div style="background-color:#f5f7ff;border:1px solid #e0e3f0;border-radius:8px;padding:20px;margin-bottom:24px;">
           <p style="margin:0 0 4px;font-size:14px;color:#334155;">Código: <strong>${escapeHtml(ticketCode)}</strong></p>
