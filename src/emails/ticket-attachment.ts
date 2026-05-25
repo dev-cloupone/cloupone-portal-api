@@ -2,7 +2,7 @@ import { buildEmailLayout } from '../utils/email-layout';
 import { escapeHtml } from '../utils/escape-html';
 
 interface TicketAttachmentEmailParams {
-  recipientName: string;
+  recipientName?: string;
   ticketCode: string;
   ticketTitle: string;
   uploaderName: string;
@@ -14,8 +14,7 @@ export function buildTicketAttachmentEmail({ recipientName, ticketCode, ticketTi
   return {
     subject: `Cloup One | [${ticketCode}] Novo anexo: ${ticketTitle}`,
     text: [
-      `Olá, ${recipientName}!`,
-      '',
+      ...(recipientName ? [`Olá, ${recipientName}!`, ''] : []),
       `${uploaderName} anexou um arquivo no ticket ${ticketCode} "${ticketTitle}":`,
       '',
       `Arquivo: ${fileName}`,
@@ -29,7 +28,7 @@ export function buildTicketAttachmentEmail({ recipientName, ticketCode, ticketTi
           Novo Anexo
         </h2>
         <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6;">
-          Olá, <strong>${escapeHtml(recipientName)}</strong>! <strong>${escapeHtml(uploaderName)}</strong> anexou um arquivo no ticket.
+          ${recipientName ? `Olá, <strong>${escapeHtml(recipientName)}</strong>! ` : ''}<strong>${escapeHtml(uploaderName)}</strong> anexou um arquivo no ticket.
         </p>
         <div style="background-color:#f5f7ff;border:1px solid #e0e3f0;border-radius:8px;padding:20px;margin-bottom:24px;">
           <p style="margin:0 0 4px;font-size:14px;color:#334155;">Ticket: <strong>${escapeHtml(ticketCode)} — ${escapeHtml(ticketTitle)}</strong></p>

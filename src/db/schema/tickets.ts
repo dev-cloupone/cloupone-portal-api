@@ -22,6 +22,7 @@ export const tickets = pgTable('tickets', {
   description: text('description'),
   metadata: jsonb('metadata'),
   isVisibleToClient: boolean('is_visible_to_client').default(true).notNull(),
+  ccEmails: text('cc_emails').array().default([]).notNull(),
   dueDate: date('due_date'),
   estimatedHours: decimal('estimated_hours', { precision: 6, scale: 1 }),
   resolvedAt: timestamp('resolved_at'),

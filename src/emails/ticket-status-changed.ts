@@ -2,7 +2,7 @@ import { buildEmailLayout } from '../utils/email-layout';
 import { escapeHtml } from '../utils/escape-html';
 
 interface TicketStatusChangedEmailParams {
-  recipientName: string;
+  recipientName?: string;
   ticketCode: string;
   ticketTitle: string;
   oldStatus: string;
@@ -26,8 +26,7 @@ export function buildTicketStatusChangedEmail({ recipientName, ticketCode, ticke
   return {
     subject: `Cloup One | [${ticketCode}] Status alterado: ${oldLabel} → ${newLabel}`,
     text: [
-      `Olá, ${recipientName}!`,
-      '',
+      ...(recipientName ? [`Olá, ${recipientName}!`, ''] : []),
       `O status do ticket ${ticketCode} "${ticketTitle}" foi alterado.`,
       `De: ${oldLabel}`,
       `Para: ${newLabel}`,
@@ -42,7 +41,7 @@ export function buildTicketStatusChangedEmail({ recipientName, ticketCode, ticke
           Status do Ticket Alterado
         </h2>
         <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6;">
-          Olá, <strong>${escapeHtml(recipientName)}</strong>! O status do ticket foi atualizado.
+          ${recipientName ? `Olá, <strong>${escapeHtml(recipientName)}</strong>! ` : ''}O status do ticket foi atualizado.
         </p>
         <div style="background-color:#f5f7ff;border:1px solid #e0e3f0;border-radius:8px;padding:20px;margin-bottom:24px;">
           <p style="margin:0 0 4px;font-size:14px;color:#334155;">Código: <strong>${escapeHtml(ticketCode)}</strong></p>

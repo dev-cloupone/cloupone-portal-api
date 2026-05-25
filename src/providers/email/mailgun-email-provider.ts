@@ -30,6 +30,9 @@ export class MailgunEmailProvider implements EmailProvider {
     const form = new FormData();
     form.append('from', this.from);
     form.append('to', options.to);
+    if (options.cc) {
+      form.append('cc', options.cc);
+    }
     form.append('subject', options.subject);
     form.append('html', options.html);
     if (options.text) {
@@ -52,7 +55,7 @@ export class MailgunEmailProvider implements EmailProvider {
     }
 
     logger.info(
-      { to: options.to, subject: options.subject },
+      { to: options.to, cc: options.cc, subject: options.subject },
       'Email sent via Mailgun',
     );
   }

@@ -23,6 +23,7 @@ async function getTicketData(ticketId: string) {
       type: tickets.type,
       status: tickets.status,
       isVisibleToClient: tickets.isVisibleToClient,
+      ccEmails: tickets.ccEmails,
       projectId: tickets.projectId,
       projectName: projects.name,
       createdBy: tickets.createdBy,
@@ -34,6 +35,26 @@ async function getTicketData(ticketId: string) {
     .limit(1);
 
   return ticket;
+}
+
+async function sendToCcRecipients(
+  ticket: { ccEmails: string[] | null; isVisibleToClient: boolean },
+  emailData: { subject: string; text: string; html: string },
+  opts?: { skipIfInternal?: boolean },
+) {
+  if (!ticket.isVisibleToClient) return;
+  if (opts?.skipIfInternal) return;
+  if (!ticket.ccEmails || ticket.ccEmails.length === 0) return;
+
+  const emailProvider = getEmailProvider();
+  const ccList = ticket.ccEmails;
+  await emailProvider.send({
+    to: ccList[0],
+    cc: ccList.length > 1 ? ccList.slice(1).join(', ') : undefined,
+    subject: emailData.subject,
+    text: emailData.text,
+    html: emailData.html,
+  });
 }
 
 async function getUserData(userId: string) {
@@ -86,6 +107,17 @@ export async function notifyTicketCreated(ticketId: string) {
       });
     }
 
+    // Send to CC recipients
+    const ccEmailData = buildTicketCreatedEmail({
+      projectName: ticket.projectName,
+      ticketCode: ticket.code,
+      ticketTitle: ticket.title,
+      ticketType: ticket.type,
+      createdByName: creator.name,
+      ticketUrl,
+    });
+    await sendToCcRecipients(ticket, ccEmailData);
+
     logger.info({ ticketId }, 'Ticket created notifications sent');
   } catch (err) {
     logger.error({ err, ticketId }, 'Failed to send ticket created notifications');
@@ -104,13 +136,15 @@ export async function notifyTicketAssigned(ticketId: string, assignedBy: string)
     const assigner = await getUserData(assignedBy);
     if (!assigner) return;
 
+    const ticketUrl = getTicketUrl(ticket.id);
+
     const emailData = buildTicketAssignedEmail({
       consultantName: assignee.name,
       ticketCode: ticket.code,
       ticketTitle: ticket.title,
       projectName: ticket.projectName,
       assignedByName: assigner.name,
-      ticketUrl: getTicketUrl(ticket.id),
+      ticketUrl,
     });
 
     const emailProvider = getEmailProvider();
@@ -120,6 +154,16 @@ export async function notifyTicketAssigned(ticketId: string, assignedBy: string)
       text: emailData.text,
       html: emailData.html,
     });
+
+    // Send to CC recipients (without personal greeting)
+    const ccEmailData = buildTicketAssignedEmail({
+      ticketCode: ticket.code,
+      ticketTitle: ticket.title,
+      projectName: ticket.projectName,
+      assignedByName: assigner.name,
+      ticketUrl,
+    });
+    await sendToCcRecipients(ticket, ccEmailData);
 
     logger.info({ ticketId, assignedTo: ticket.assignedTo }, 'Ticket assigned notification sent');
   } catch (err) {
@@ -139,37 +183,48 @@ export async function notifyStatusChanged(ticketId: string, oldStatus: string, n
     if (ticket.createdBy !== changedBy) recipientIds.add(ticket.createdBy);
     if (ticket.assignedTo && ticket.assignedTo !== changedBy) recipientIds.add(ticket.assignedTo);
 
-    if (recipientIds.size === 0) return;
-
-    const recipients = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
-      .from(users)
-      .where(inArray(users.id, [...recipientIds]));
-
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);
 
-    for (const recipient of recipients) {
-      // Don't send to clients if ticket is not visible
-      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
+    if (recipientIds.size > 0) {
+      const recipients = await db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .from(users)
+        .where(inArray(users.id, [...recipientIds]));
 
-      const emailData = buildTicketStatusChangedEmail({
-        recipientName: recipient.name,
-        ticketCode: ticket.code,
-        ticketTitle: ticket.title,
-        oldStatus,
-        newStatus,
-        changedByName: changer.name,
-        ticketUrl,
-      });
+      for (const recipient of recipients) {
+        // Don't send to clients if ticket is not visible
+        if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
-      await emailProvider.send({
-        to: recipient.email,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
+        const emailData = buildTicketStatusChangedEmail({
+          recipientName: recipient.name,
+          ticketCode: ticket.code,
+          ticketTitle: ticket.title,
+          oldStatus,
+          newStatus,
+          changedByName: changer.name,
+          ticketUrl,
+        });
+
+        await emailProvider.send({
+          to: recipient.email,
+          subject: emailData.subject,
+          text: emailData.text,
+          html: emailData.html,
+        });
+      }
     }
+
+    // Send to CC recipients
+    const ccEmailData = buildTicketStatusChangedEmail({
+      ticketCode: ticket.code,
+      ticketTitle: ticket.title,
+      oldStatus,
+      newStatus,
+      changedByName: changer.name,
+      ticketUrl,
+    });
+    await sendToCcRecipients(ticket, ccEmailData);
 
     logger.info({ ticketId, oldStatus, newStatus }, 'Status changed notifications sent');
   } catch (err) {
@@ -201,39 +256,49 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
     if (ticket.createdBy !== comment.userId) recipientIds.add(ticket.createdBy);
     if (ticket.assignedTo && ticket.assignedTo !== comment.userId) recipientIds.add(ticket.assignedTo);
 
-    if (recipientIds.size === 0) return;
-
-    const recipients = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
-      .from(users)
-      .where(inArray(users.id, [...recipientIds]));
-
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);
     const commentPreview = comment.content.length > 200 ? comment.content.substring(0, 200) + '...' : comment.content;
 
-    for (const recipient of recipients) {
-      // Internal comments: don't send to clients
-      if (isInternal && recipient.role === 'client') continue;
-      // Ticket not visible: don't send to clients
-      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
+    if (recipientIds.size > 0) {
+      const recipients = await db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .from(users)
+        .where(inArray(users.id, [...recipientIds]));
 
-      const emailData = buildTicketCommentEmail({
-        recipientName: recipient.name,
-        ticketCode: ticket.code,
-        ticketTitle: ticket.title,
-        commentAuthorName: author.name,
-        commentPreview,
-        ticketUrl,
-      });
+      for (const recipient of recipients) {
+        // Internal comments: don't send to clients
+        if (isInternal && recipient.role === 'client') continue;
+        // Ticket not visible: don't send to clients
+        if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
-      await emailProvider.send({
-        to: recipient.email,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
+        const emailData = buildTicketCommentEmail({
+          recipientName: recipient.name,
+          ticketCode: ticket.code,
+          ticketTitle: ticket.title,
+          commentAuthorName: author.name,
+          commentPreview,
+          ticketUrl,
+        });
+
+        await emailProvider.send({
+          to: recipient.email,
+          subject: emailData.subject,
+          text: emailData.text,
+          html: emailData.html,
+        });
+      }
     }
+
+    // Send to CC recipients (skip if internal comment)
+    const ccEmailData = buildTicketCommentEmail({
+      ticketCode: ticket.code,
+      ticketTitle: ticket.title,
+      commentAuthorName: author.name,
+      commentPreview,
+      ticketUrl,
+    });
+    await sendToCcRecipients(ticket, ccEmailData, { skipIfInternal: isInternal });
 
     logger.info({ ticketId, commentId, isInternal }, 'Comment notifications sent');
   } catch (err) {
@@ -253,36 +318,46 @@ export async function notifyNewAttachment(ticketId: string, uploadedBy: string, 
     if (ticket.createdBy !== uploadedBy) recipientIds.add(ticket.createdBy);
     if (ticket.assignedTo && ticket.assignedTo !== uploadedBy) recipientIds.add(ticket.assignedTo);
 
-    if (recipientIds.size === 0) return;
-
-    const recipients = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role })
-      .from(users)
-      .where(inArray(users.id, [...recipientIds]));
-
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);
 
-    for (const recipient of recipients) {
-      // Don't send to clients if ticket is not visible
-      if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
+    if (recipientIds.size > 0) {
+      const recipients = await db
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .from(users)
+        .where(inArray(users.id, [...recipientIds]));
 
-      const emailData = buildTicketAttachmentEmail({
-        recipientName: recipient.name,
-        ticketCode: ticket.code,
-        ticketTitle: ticket.title,
-        uploaderName: uploader.name,
-        fileName,
-        ticketUrl,
-      });
+      for (const recipient of recipients) {
+        // Don't send to clients if ticket is not visible
+        if (recipient.role === 'client' && !ticket.isVisibleToClient) continue;
 
-      await emailProvider.send({
-        to: recipient.email,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
+        const emailData = buildTicketAttachmentEmail({
+          recipientName: recipient.name,
+          ticketCode: ticket.code,
+          ticketTitle: ticket.title,
+          uploaderName: uploader.name,
+          fileName,
+          ticketUrl,
+        });
+
+        await emailProvider.send({
+          to: recipient.email,
+          subject: emailData.subject,
+          text: emailData.text,
+          html: emailData.html,
+        });
+      }
     }
+
+    // Send to CC recipients
+    const ccEmailData = buildTicketAttachmentEmail({
+      ticketCode: ticket.code,
+      ticketTitle: ticket.title,
+      uploaderName: uploader.name,
+      fileName,
+      ticketUrl,
+    });
+    await sendToCcRecipients(ticket, ccEmailData);
 
     logger.info({ ticketId, uploadedBy, fileName }, 'Attachment notifications sent');
   } catch (err) {
