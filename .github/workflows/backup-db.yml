@@ -21,8 +21,11 @@ jobs:
     steps:
       - name: Install tools
         run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client gpg > /dev/null
+          sudo apt-get install -y -qq postgresql-client-18 gpg > /dev/null
+          pg_dump --version
 
       - name: Generate backup filename
         id: filename
@@ -51,20 +54,25 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          pg_dump "$DATABASE_URL" --no-owner --no-privileges | \
-            gzip | \
-            gpg --batch --yes --symmetric --cipher-algo AES256 \
-              --passphrase "$GPG_PASSPHRASE" \
-              -o backup.sql.gz.gpg
+          set -euo pipefail
+
+          pg_dump "$DATABASE_URL" --no-owner --no-privileges > dump.sql
+
+          DUMP_SIZE=$(stat --format=%s dump.sql)
+          echo "Dump size: $DUMP_SIZE bytes"
+
+          if [ "$DUMP_SIZE" -lt 1024 ]; then
+            echo "ERROR: Dump too small ($DUMP_SIZE bytes), likely failed"
+            exit 1
+          fi
+
+          gzip dump.sql
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$GPG_PASSPHRASE" \
+            -o backup.sql.gz.gpg dump.sql.gz
 
           SIZE=$(du -h backup.sql.gz.gpg | cut -f1)
           echo "Backup size: $SIZE"
-
-          # Falha se o arquivo estiver vazio (dump falhou silenciosamente)
-          if [ ! -s backup.sql.gz.gpg ]; then
-            echo "ERROR: Backup file is empty"
-            exit 1
-          fi
 
       - name: Upload to Cloudflare R2
         env:
