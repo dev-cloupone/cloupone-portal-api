@@ -122,12 +122,12 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
       .orderBy(users.name);
   }
 
-  if (userRole === 'gestor') {
-    const gestorProjects = await db.select({ projectId: projectAllocations.projectId })
+  if (userRole === 'gestor' || userRole === 'consultor') {
+    const userProjects = await db.select({ projectId: projectAllocations.projectId })
       .from(projectAllocations)
       .where(eq(projectAllocations.userId, userId));
 
-    const projectIds = gestorProjects.map(p => p.projectId);
+    const projectIds = userProjects.map(p => p.projectId);
     if (projectIds.length === 0) return [];
 
     return db.selectDistinct({

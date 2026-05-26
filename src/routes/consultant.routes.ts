@@ -6,8 +6,8 @@ import { consultantController } from '../controllers/consultant.controller';
 
 const router = Router();
 
-// Consultants by scope (for filters - gestor sees only their project consultants)
-router.get('/by-scope', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, consultantController.listByScope);
+// Consultants by scope (for filters - returns consultants from user's allocated projects)
+router.get('/by-scope', auth, authorize('super_admin', 'gestor', 'consultor'), authenticatedRateLimit, consultantController.listByScope);
 
 // Consultant can list their own allocated projects
 router.get('/:userId/projects', auth, authenticatedRateLimit, consultantController.listProjects);
