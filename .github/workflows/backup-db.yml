@@ -120,10 +120,4 @@ jobs:
             -F from="Cloupone Backup <noreply@$MAILGUN_DOMAIN>" \
             -F to="$ALERT_EMAIL" \
             -F subject="[ALERTA] Falha no backup do banco - $(date +%Y-%m-%d)" \
-            -F text="O backup automatico do banco de dados falhou.
-
-Detalhes:
-- Data: $(date '+%Y-%m-%d %H:%M:%S UTC')
-- Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-Verifique o log do workflow para mais detalhes."
+            -F text="O backup automatico do banco de dados falhou. Data: $(date '+%Y-%m-%d %H:%M:%S UTC'). Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
