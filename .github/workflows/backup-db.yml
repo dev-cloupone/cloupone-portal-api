@@ -25,6 +25,8 @@ jobs:
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-18 gpg > /dev/null
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
+          echo "PATH=/usr/lib/postgresql/18/bin:$PATH" >> $GITHUB_ENV
           pg_dump --version
 
       - name: Generate backup filename
