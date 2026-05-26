@@ -111,7 +111,9 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
   return updated;
 }
 
-export async function listConsultantsByScope(userId: string, userRole: string) {
+export async function listConsultantsByScope(userId: string, userRole: string, filterRole?: string) {
+  const roleCondition = filterRole ? eq(users.role, filterRole) : undefined;
+
   if (userRole === 'super_admin') {
     return db.select({
       id: users.id,
@@ -119,6 +121,7 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
     })
       .from(users)
       .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
+      .where(roleCondition)
       .orderBy(users.name);
   }
 
@@ -130,6 +133,9 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
     const projectIds = userProjects.map(p => p.projectId);
     if (projectIds.length === 0) return [];
 
+    const conditions = [inArray(projectAllocations.projectId, projectIds)];
+    if (roleCondition) conditions.push(roleCondition);
+
     return db.selectDistinct({
       id: users.id,
       name: users.name,
@@ -137,7 +143,7 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
       .from(users)
       .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
       .innerJoin(projectAllocations, eq(projectAllocations.userId, users.id))
-      .where(inArray(projectAllocations.projectId, projectIds))
+      .where(and(...conditions))
       .orderBy(users.name);
   }
 
