@@ -111,8 +111,10 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
   return updated;
 }
 
+type UserRole = 'super_admin' | 'gestor' | 'consultor' | 'client';
+
 export async function listConsultantsByScope(userId: string, userRole: string, filterRole?: string) {
-  const roleCondition = filterRole ? eq(users.role, filterRole) : undefined;
+  const roleCondition = filterRole ? eq(users.role, filterRole as UserRole) : undefined;
 
   if (userRole === 'super_admin') {
     return db.select({
