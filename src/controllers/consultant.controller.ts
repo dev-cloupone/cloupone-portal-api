@@ -75,7 +75,8 @@ const listProjects: RequestHandler = async (req, res, next) => {
 
 const listByScope: RequestHandler = async (req, res, next) => {
   try {
-    const data = await consultantService.listConsultantsByScope(req.userId!, req.userRole!);
+    const filterRole = req.query.role as string | undefined;
+    const data = await consultantService.listConsultantsByScope(req.userId!, req.userRole!, filterRole);
     res.json({ data });
   } catch (err) {
     next(err);

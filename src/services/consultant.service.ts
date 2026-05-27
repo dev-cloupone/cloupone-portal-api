@@ -111,7 +111,11 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
   return updated;
 }
 
-export async function listConsultantsByScope(userId: string, userRole: string) {
+type UserRole = 'super_admin' | 'gestor' | 'consultor' | 'client';
+
+export async function listConsultantsByScope(userId: string, userRole: string, filterRole?: string) {
+  const roleCondition = filterRole ? eq(users.role, filterRole as UserRole) : undefined;
+
   if (userRole === 'super_admin') {
     return db.select({
       id: users.id,
@@ -119,16 +123,20 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
     })
       .from(users)
       .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
+      .where(roleCondition)
       .orderBy(users.name);
   }
 
-  if (userRole === 'gestor') {
-    const gestorProjects = await db.select({ projectId: projectAllocations.projectId })
+  if (userRole === 'gestor' || userRole === 'consultor') {
+    const userProjects = await db.select({ projectId: projectAllocations.projectId })
       .from(projectAllocations)
       .where(eq(projectAllocations.userId, userId));
 
-    const projectIds = gestorProjects.map(p => p.projectId);
+    const projectIds = userProjects.map(p => p.projectId);
     if (projectIds.length === 0) return [];
+
+    const conditions = [inArray(projectAllocations.projectId, projectIds)];
+    if (roleCondition) conditions.push(roleCondition);
 
     return db.selectDistinct({
       id: users.id,
@@ -137,7 +145,7 @@ export async function listConsultantsByScope(userId: string, userRole: string) {
       .from(users)
       .innerJoin(consultantProfiles, eq(consultantProfiles.userId, users.id))
       .innerJoin(projectAllocations, eq(projectAllocations.userId, users.id))
-      .where(inArray(projectAllocations.projectId, projectIds))
+      .where(and(...conditions))
       .orderBy(users.name);
   }
 

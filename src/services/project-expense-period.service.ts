@@ -23,6 +23,17 @@ function isSunday(dateStr: string): boolean {
   return new Date(dateStr + 'T12:00:00Z').getDay() === 0;
 }
 
+function getWeekDays(weekStart: string): string[] {
+  const days: string[] = [];
+  const start = new Date(weekStart + 'T12:00:00');
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d.toISOString().split('T')[0]);
+  }
+  return days;
+}
+
 export async function listByProject(
   projectId: string,
   filters?: { status?: 'open' | 'closed'; year?: number; month?: number },
@@ -144,6 +155,80 @@ export async function reopenPeriod(periodId: string, projectId: string, reopened
       status: 'open',
       reopenedBy,
       reopenedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(projectExpensePeriods.id, periodId))
+    .returning();
+
+  return updated;
+}
+
+export async function updatePeriodDays(
+  periodId: string,
+  projectId: string,
+  data: { customDays: string[] | null },
+  updatedBy: string,
+) {
+  const [period] = await db.select()
+    .from(projectExpensePeriods)
+    .where(eq(projectExpensePeriods.id, periodId))
+    .limit(1);
+
+  if (!period) throw new AppError(MSG.NOT_FOUND, 404);
+  if (period.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
+  if (period.status !== 'open') throw new AppError(MSG.NOT_OPEN, 400);
+
+  const weekDays = getWeekDays(period.weekStart);
+  const weekDaysSet = new Set(weekDays);
+
+  // Deduplicate
+  let normalizedDays = data.customDays ? [...new Set(data.customDays)] : null;
+
+  // Normalize: if all 7 days or empty, save as null (full week)
+  if (normalizedDays && (normalizedDays.length === 0 || normalizedDays.length === 7)) {
+    normalizedDays = null;
+  }
+
+  // Validate customDays belong to this week
+  if (normalizedDays?.length) {
+    for (const day of normalizedDays) {
+      if (!weekDaysSet.has(day)) {
+        throw new AppError(MSG.CUSTOM_DAY_OUT_OF_RANGE, 400);
+      }
+    }
+  }
+
+  // Determine which days are being removed
+  const previousDays = period.customDays && Array.isArray(period.customDays)
+    ? (period.customDays as string[])
+    : weekDays;
+  const newDays = normalizedDays || weekDays;
+  const newDaysSet = new Set(newDays);
+  const removedDays = previousDays.filter(d => !newDaysSet.has(d));
+
+  // Check for existing expenses on removed days
+  if (removedDays.length > 0) {
+    const [expenseCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(expenses)
+      .where(and(
+        eq(expenses.projectId, period.projectId),
+        inArray(expenses.date, removedDays),
+      ));
+
+    if (expenseCount && expenseCount.count > 0) {
+      throw new AppError(
+        'Existem despesas lançadas em dias que seriam removidos. Exclua as despesas antes de remover esses dias.',
+        400,
+      );
+    }
+  }
+
+  const [updated] = await db.update(projectExpensePeriods)
+    .set({
+      customDays: normalizedDays,
+      daysEditedBy: updatedBy,
+      daysEditedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(projectExpensePeriods.id, periodId))

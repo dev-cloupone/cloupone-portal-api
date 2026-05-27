@@ -1,4 +1,4 @@
-import { eq, and, sql, count as drizzleCount, lt, desc } from 'drizzle-orm';
+import { eq, ne, and, sql, count as drizzleCount, lt, desc } from 'drizzle-orm';
 import { db } from '../db';
 import { monthlyTimesheets, timeEntries, users, projects, tickets } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -64,7 +64,11 @@ export async function list(filters: ListFilters) {
   if (filters.year) conditions.push(eq(monthlyTimesheets.year, filters.year));
   if (filters.month) conditions.push(eq(monthlyTimesheets.month, filters.month));
   if (filters.userId) conditions.push(eq(monthlyTimesheets.userId, filters.userId));
-  if (filters.status) conditions.push(eq(monthlyTimesheets.status, filters.status as 'open' | 'approved' | 'reopened'));
+  if (filters.status === 'not_approved') {
+    conditions.push(ne(monthlyTimesheets.status, 'approved'));
+  } else if (filters.status) {
+    conditions.push(eq(monthlyTimesheets.status, filters.status as 'open' | 'approved' | 'reopened'));
+  }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 

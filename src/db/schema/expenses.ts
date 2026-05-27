@@ -54,6 +54,8 @@ export const projectExpensePeriods = pgTable('project_expense_periods', {
   closedAt: timestamp('closed_at'),
   reopenedBy: uuid('reopened_by').references(() => users.id),
   reopenedAt: timestamp('reopened_at'),
+  daysEditedBy: uuid('days_edited_by').references(() => users.id),
+  daysEditedAt: timestamp('days_edited_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [

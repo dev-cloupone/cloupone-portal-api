@@ -1,0 +1,133 @@
+name: Database Backup
+
+on:
+  schedule:
+    # Todo dia a meia-noite BRT (3h UTC)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    # Permite rodar manualmente pelo GitHub
+
+env:
+  BACKUP_BUCKET: cloupone-backups
+  RETENTION_DAILY: 7
+  RETENTION_WEEKLY: 30
+  RETENTION_MONTHLY: 180
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Install tools
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18 gpg > /dev/null
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
+          echo "PATH=/usr/lib/postgresql/18/bin:$PATH" >> $GITHUB_ENV
+          pg_dump --version
+
+      - name: Generate backup filename
+        id: filename
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          TIMESTAMP=$(date +%Y-%m-%d_%H%M%S)
+          DAY_OF_WEEK=$(date +%u)
+          DAY_OF_MONTH=$(date +%d)
+
+          # Determina tipo do backup para rotacao
+          if [ "$DAY_OF_MONTH" = "01" ]; then
+            TYPE="monthly"
+          elif [ "$DAY_OF_WEEK" = "7" ]; then
+            TYPE="weekly"
+          else
+            TYPE="daily"
+          fi
+
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "type=$TYPE" >> $GITHUB_OUTPUT
+          echo "filename=cloupone_${TIMESTAMP}_${TYPE}.sql.gz.gpg" >> $GITHUB_OUTPUT
+
+      - name: Dump and encrypt database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          pg_dump "$DATABASE_URL" --no-owner --no-privileges > dump.sql
+
+          DUMP_SIZE=$(stat --format=%s dump.sql)
+          echo "Dump size: $DUMP_SIZE bytes"
+
+          if [ "$DUMP_SIZE" -lt 1024 ]; then
+            echo "ERROR: Dump too small ($DUMP_SIZE bytes), likely failed"
+            exit 1
+          fi
+
+          gzip dump.sql
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$GPG_PASSPHRASE" \
+            -o backup.sql.gz.gpg dump.sql.gz
+
+          SIZE=$(du -h backup.sql.gz.gpg | cut -f1)
+          echo "Backup size: $SIZE"
+
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          aws s3 cp backup.sql.gz.gpg \
+            "s3://$BACKUP_BUCKET/${{ steps.filename.outputs.filename }}" \
+            --endpoint-url "$R2_ENDPOINT"
+
+          echo "Uploaded: ${{ steps.filename.outputs.filename }}"
+
+      - name: Cleanup old backups
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          cleanup_by_type() {
+            local type=$1
+            local retention_days=$2
+
+            cutoff_date=$(date -d "-${retention_days} days" +%Y-%m-%d)
+
+            aws s3 ls "s3://$BACKUP_BUCKET/" --endpoint-url "$R2_ENDPOINT" | \
+              grep "_${type}.sql.gz.gpg" | \
+              while read -r line; do
+                file=$(echo "$line" | awk '{print $4}')
+                # Extrai data do nome: cloupone_2026-05-26_120000_daily.sql.gz.gpg
+                file_date=$(echo "$file" | grep -oP '\d{4}-\d{2}-\d{2}')
+
+                if [ -n "$file_date" ] && [[ "$file_date" < "$cutoff_date" ]]; then
+                  echo "Removing old $type backup: $file"
+                  aws s3 rm "s3://$BACKUP_BUCKET/$file" --endpoint-url "$R2_ENDPOINT"
+                fi
+              done
+          }
+
+          cleanup_by_type "daily" $RETENTION_DAILY
+          cleanup_by_type "weekly" $RETENTION_WEEKLY
+          cleanup_by_type "monthly" $RETENTION_MONTHLY
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          curl -s --user "api:$MAILGUN_API_KEY" \
+            "https://api.mailgun.net/v3/$MAILGUN_DOMAIN/messages" \
+            -F from="Cloupone Backup <noreply@$MAILGUN_DOMAIN>" \
+            -F to="$ALERT_EMAIL" \
+            -F subject="[ALERTA] Falha no backup do banco - $(date +%Y-%m-%d)" \
+            -F text="O backup automatico do banco de dados falhou. Data: $(date '+%Y-%m-%d %H:%M:%S UTC'). Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

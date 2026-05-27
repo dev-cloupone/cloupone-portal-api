@@ -65,4 +65,26 @@ const reopenPeriod: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const projectExpensePeriodController = { list, openPeriod, closePeriod, reopenPeriod };
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(
+  (s) => !isNaN(new Date(s + 'T12:00:00').getTime()),
+  { message: 'Data inválida' },
+);
+
+const updateDaysSchema = z.object({
+  customDays: z.array(dateString).nullable(),
+});
+
+const updateDays: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = projectIdSchema.parse(req.params.projectId);
+    await assertUserHasProjectAccess(req.userId!, req.userRole!, projectId);
+    const periodId = idSchema.parse(req.params.id);
+    const body = updateDaysSchema.parse(req.body);
+    const period = await periodService.updatePeriodDays(periodId, projectId, body, req.userId!);
+    res.json(period);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const projectExpensePeriodController = { list, openPeriod, closePeriod, reopenPeriod, updateDays };
