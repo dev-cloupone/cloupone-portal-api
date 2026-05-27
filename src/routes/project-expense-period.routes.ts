@@ -10,5 +10,6 @@ router.get('/:projectId/expense-periods', auth, authenticatedRateLimit, projectE
 router.post('/:projectId/expense-periods', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectExpensePeriodController.openPeriod);
 router.post('/:projectId/expense-periods/:id/close', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectExpensePeriodController.closePeriod);
 router.post('/:projectId/expense-periods/:id/reopen', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectExpensePeriodController.reopenPeriod);
+router.patch('/:projectId/expense-periods/:id/days', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectExpensePeriodController.updateDays);
 
 export { router as projectExpensePeriodRoutes };

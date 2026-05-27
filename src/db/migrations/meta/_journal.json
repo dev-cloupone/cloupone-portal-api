@@ -176,6 +176,13 @@
       "when": 1779868800000,
       "tag": "0024_add_ticket_cc_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780041600000,
+      "tag": "0025_add_days_edited_audit_fields",
+      "breakpoints": true
     }
   ]
 }
