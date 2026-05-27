@@ -36,12 +36,12 @@ jobs:
 
       - name: Deploy to dev
         if: github.ref == 'refs/heads/develop'
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }} --environment dev
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }}
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_DEV }}
 
       - name: Deploy to production
         if: github.ref == 'refs/heads/main'
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }} --environment production
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }}
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
