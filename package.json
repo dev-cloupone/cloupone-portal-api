@@ -12,7 +12,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:seed:reports": "tsx src/db/seed-reports.ts",
     "start": "node dist/server.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest --watch"
