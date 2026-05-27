@@ -19,7 +19,7 @@ const listFiltersSchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   userId: z.string().uuid().optional(),
-  status: z.enum(['open', 'approved', 'reopened']).optional(),
+  status: z.enum(['open', 'approved', 'reopened', 'not_approved']).optional(),
 });
 
 const list: RequestHandler = async (req, res, next) => {
