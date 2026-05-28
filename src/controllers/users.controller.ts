@@ -11,7 +11,7 @@ const createUserSchema = z.object({
   email: z.string().email(V.emailInvalid),
   name: z.string().min(1, V.required('Nome')).max(200, V.max('Nome', 200)),
   password: z.string().min(8, V.min('Senha', 8)),
-  role: z.enum(['super_admin', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }),
+  role: z.enum(['super_admin', 'administrative', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).nullable().optional(),
 }).refine(
   (data) => data.role !== 'client' || (data.clientId != null && data.clientId !== ''),
@@ -21,7 +21,7 @@ const createUserSchema = z.object({
 const updateUserSchema = z.object({
   name: z.string().min(1, V.required('Nome')).max(200, V.max('Nome', 200)).optional(),
   email: z.string().email(V.emailInvalid).optional(),
-  role: z.enum(['super_admin', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }).optional(),
+  role: z.enum(['super_admin', 'administrative', 'gestor', 'consultor', 'client'], { message: V.enumInvalidFem('Função') }).optional(),
   isActive: z.boolean().optional(),
   password: z.string().min(8, V.min('Senha', 8)).optional(),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).nullable().optional(),
@@ -31,7 +31,7 @@ const updateUserSchema = z.object({
 );
 
 const listFiltersSchema = z.object({
-  role: z.enum(['super_admin', 'gestor', 'consultor', 'client']).optional(),
+  role: z.enum(['super_admin', 'administrative', 'gestor', 'consultor', 'client']).optional(),
   clientId: z.string().uuid().optional(),
   isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });

@@ -143,7 +143,7 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
       categoryName: projectExpenseCategories.name,
       description: expenses.description,
       amount: expenses.amount,
-      clientChargeAmount: expenses.clientChargeAmount,
+      approvedAmount: expenses.approvedAmount,
       kmQuantity: expenses.kmQuantity,
       categoryKmRate: projectExpenseCategories.kmRate,
       categoryIsKmCategory: projectExpenseCategories.isKmCategory,
@@ -163,10 +163,7 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
       (e) => e.date >= period.weekStart && e.date <= period.weekEnd,
     );
 
-    // Filter client view entries with clientChargeAmount > 0
-    const filteredEntries = filters.view === 'client'
-      ? periodEntries.filter((e) => Number(e.clientChargeAmount) > 0)
-      : periodEntries;
+    const filteredEntries = periodEntries;
 
     // Group by consultant
     const consultantMap = new Map<string, ConsultantGroup>();
@@ -175,7 +172,7 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
       const cName = e.consultantName || 'Sem consultor';
       const group = consultantMap.get(cId) || { consultantId: cId, consultantName: cName, entries: [], subtotal: 0 };
 
-      const value = filters.view === 'client' ? Number(e.clientChargeAmount) : Number(e.amount);
+      const value = Number(e.approvedAmount ?? e.amount);
       group.entries.push({
         date: e.date,
         category: e.categoryName || 'Sem categoria',

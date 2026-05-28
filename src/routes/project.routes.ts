@@ -13,7 +13,7 @@ router.get('/', auth, authenticatedRateLimit, projectController.list);
 router.get('/:id/allocations', auth, authorize('consultor', 'gestor', 'super_admin'), authenticatedRateLimit, projectController.listAllocations);
 
 // All other routes require super_admin or gestor
-router.get('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.getById);
+router.get('/:id', auth, authorize('super_admin', 'administrative', 'gestor'), authenticatedRateLimit, projectController.getById);
 router.post('/', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.create);
 router.patch('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.update);
 router.delete('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.deactivate);

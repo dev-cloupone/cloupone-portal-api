@@ -15,8 +15,6 @@ const upsertExpenseSchema = z.object({
   description: z.string().max(500, V.max('Descrição', 500)).optional().nullable(),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
   kmQuantity: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
-  clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
-  clientChargeAmountManuallySet: z.boolean().optional(),
   receiptFileId: z.string().uuid(V.uuidInvalid('Comprovante')).nullable().optional(),
   requiresReimbursement: z.boolean().optional(),
   templateId: z.string().uuid(V.uuidInvalid('Template')).nullable().optional(),
@@ -28,7 +26,7 @@ const approveExpensesSchema = z.object({
   updates: z.record(
     z.string().uuid(),
     z.object({
-      clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
+      approvedAmount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido').optional(),
     })
   ).optional(),
 });

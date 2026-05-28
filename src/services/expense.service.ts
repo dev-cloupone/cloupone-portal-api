@@ -64,8 +64,7 @@ const expenseSelectFields = {
   description: expenses.description,
   amount: expenses.amount,
   kmQuantity: expenses.kmQuantity,
-  clientChargeAmount: expenses.clientChargeAmount,
-  clientChargeAmountManuallySet: expenses.clientChargeAmountManuallySet,
+  approvedAmount: expenses.approvedAmount,
   receiptFileId: expenses.receiptFileId,
   receiptUrl: files.url,
   requiresReimbursement: expenses.requiresReimbursement,
@@ -257,8 +256,6 @@ interface UpsertExpenseInput {
   description?: string | null;
   amount: string;
   kmQuantity?: string | null;
-  clientChargeAmount?: string | null;
-  clientChargeAmountManuallySet?: boolean;
   receiptFileId?: string | null;
   requiresReimbursement?: boolean;
   templateId?: string | null;
@@ -339,14 +336,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     }
   }
 
-  // V2: client_charge_amount logic
   const isGestorOrAdmin = requestUserRole === 'gestor' || requestUserRole === 'super_admin';
-  let clientChargeAmount = computedAmount;
-  let clientChargeAmountManuallySet = false;
-  if (isGestorOrAdmin && data.clientChargeAmount != null) {
-    clientChargeAmount = data.clientChargeAmount;
-    clientChargeAmountManuallySet = true;
-  }
 
   // V2: requires_reimbursement defaults
   const defaultReimbursement = requestUserRole === 'consultor';
@@ -373,15 +363,6 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       throw new AppError(MSG.CANNOT_EDIT_REIMBURSEMENT, 400);
     }
 
-    // V2: Recalculate client_charge if not manually set
-    if (!existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
-      clientChargeAmount = computedAmount;
-    } else if (existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
-      // Keep existing manual value
-      clientChargeAmount = existing.clientChargeAmount;
-      clientChargeAmountManuallySet = true;
-    }
-
     const [updated] = await db.update(expenses).set({
       projectId: data.projectId,
       consultantUserId: consultantUserId,
@@ -390,8 +371,6 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       description: data.description ?? null,
       amount: computedAmount,
       kmQuantity,
-      clientChargeAmount,
-      clientChargeAmountManuallySet,
       receiptFileId: data.receiptFileId ?? null,
       requiresReimbursement: data.requiresReimbursement ?? existing.requiresReimbursement,
       templateId: data.templateId ?? null,
@@ -416,8 +395,6 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     description: data.description ?? null,
     amount: computedAmount,
     kmQuantity,
-    clientChargeAmount,
-    clientChargeAmountManuallySet,
     receiptFileId: data.receiptFileId ?? null,
     requiresReimbursement: data.requiresReimbursement ?? defaultReimbursement,
     templateId: data.templateId ?? null,
@@ -535,7 +512,7 @@ export async function listPendingApprovals(params: PaginationParams & { consulta
 export async function approveExpenses(
   ids: string[],
   approvedByUserId: string,
-  updates?: Record<string, { clientChargeAmount: string }>,
+  updates?: Record<string, { approvedAmount?: string }>,
 ) {
   const entries = await db
     .select({ id: expenses.id, status: expenses.status })
@@ -558,10 +535,9 @@ export async function approveExpenses(
 
     if (updates) {
       for (const [expenseId, data] of Object.entries(updates)) {
-        if (ids.includes(expenseId)) {
+        if (ids.includes(expenseId) && data.approvedAmount) {
           await tx.update(expenses).set({
-            clientChargeAmount: data.clientChargeAmount,
-            clientChargeAmountManuallySet: true,
+            approvedAmount: data.approvedAmount,
             updatedAt: now,
           }).where(eq(expenses.id, expenseId));
         }

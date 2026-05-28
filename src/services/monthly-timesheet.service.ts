@@ -211,6 +211,10 @@ export async function reopen(userId: string, year: number, month: number, reopen
     throw new AppError(MSG.NOT_APPROVED, 400);
   }
 
+  if (timesheet.paymentLocked) {
+    throw new AppError('Timesheet travado por pagamento confirmado. Cancele o pagamento primeiro.', 400);
+  }
+
   const [updated] = await db
     .update(monthlyTimesheets)
     .set({

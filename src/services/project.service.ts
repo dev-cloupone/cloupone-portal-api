@@ -1,6 +1,6 @@
 import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { projects, clients, projectAllocations, users } from '../db/schema';
+import { projects, clients, projectAllocations, users, consultantProjectRates, consultantProfiles } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -197,15 +197,40 @@ export async function listAllocations(projectId: string) {
 }
 
 export async function addAllocation(projectId: string, userId: string) {
-  const [existing] = await db.select({ id: projectAllocations.id })
-    .from(projectAllocations)
-    .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
-    .limit(1);
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx.select({ id: projectAllocations.id })
+      .from(projectAllocations)
+      .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
+      .limit(1);
 
-  if (existing) throw new AppError(PROJECT.ALLOCATION_EXISTS, 409);
+    if (existing) throw new AppError(PROJECT.ALLOCATION_EXISTS, 409);
 
-  const [created] = await db.insert(projectAllocations).values({ projectId, userId }).returning();
-  return created;
+    const [created] = await tx.insert(projectAllocations).values({ projectId, userId }).returning();
+
+    // Auto-create consultantProjectRates with defaults
+    const [profile] = await tx.select({ hourlyRate: consultantProfiles.hourlyRate })
+      .from(consultantProfiles)
+      .where(eq(consultantProfiles.userId, userId))
+      .limit(1);
+
+    const [project] = await tx.select({ billingRate: projects.billingRate })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (profile && project) {
+      await tx.insert(consultantProjectRates)
+        .values({
+          userId,
+          projectId,
+          costRate: profile.hourlyRate,
+          billingRate: project.billingRate,
+        })
+        .onConflictDoNothing();
+    }
+
+    return created;
+  });
 }
 
 export async function removeAllocation(projectId: string, userId: string) {

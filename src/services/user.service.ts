@@ -47,7 +47,7 @@ export async function getDashboard() {
 }
 
 export interface UserFilters {
-  role?: 'super_admin' | 'gestor' | 'consultor' | 'client';
+  role?: 'super_admin' | 'administrative' | 'gestor' | 'consultor' | 'client';
   clientId?: string;
   isActive?: boolean;
 }
@@ -75,7 +75,7 @@ export async function listUsers(pagination: PaginationParams, filters?: UserFilt
   return { data, meta: buildMeta(total, pagination) };
 }
 
-export async function createUser(data: { name: string; email: string; password: string; role: 'super_admin' | 'gestor' | 'consultor' | 'client'; clientId?: string | null }) {
+export async function createUser(data: { name: string; email: string; password: string; role: 'super_admin' | 'administrative' | 'gestor' | 'consultor' | 'client'; clientId?: string | null }) {
   const [existing] = await db
     .select({ id: users.id })
     .from(users)
@@ -131,7 +131,7 @@ export async function createUser(data: { name: string; email: string; password: 
 
 export async function updateUser(
   id: string,
-  data: { name?: string; email?: string; role?: 'super_admin' | 'gestor' | 'consultor' | 'client'; isActive?: boolean; password?: string; clientId?: string | null },
+  data: { name?: string; email?: string; role?: 'super_admin' | 'administrative' | 'gestor' | 'consultor' | 'client'; isActive?: boolean; password?: string; clientId?: string | null },
 ) {
   const [existing] = await db
     .select({ id: users.id, role: users.role })

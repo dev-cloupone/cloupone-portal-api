@@ -1,4 +1,4 @@
-import { pgTable, uuid, integer, timestamp, text, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, integer, boolean, timestamp, text, pgEnum, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
 export const monthlyTimesheetStatusEnum = pgEnum('monthly_timesheet_status', ['open', 'approved', 'reopened']);
@@ -14,6 +14,7 @@ export const monthlyTimesheets = pgTable('monthly_timesheets', {
   reopenedAt: timestamp('reopened_at'),
   reopenedById: uuid('reopened_by_id').references(() => users.id),
   reopenReason: text('reopen_reason'),
+  paymentLocked: boolean('payment_locked').default(false).notNull(),
   escalatedAt: timestamp('escalated_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

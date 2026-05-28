@@ -20,7 +20,7 @@ export async function assertUserHasProjectAccess(
   projectId: string,
   userClientId?: string | null,
 ): Promise<void> {
-  if (userRole === 'super_admin') return;
+  if (userRole === 'super_admin' || userRole === 'administrative') return;
 
   if (userRole === 'gestor' || userRole === 'consultor') {
     const [allocation] = await db
