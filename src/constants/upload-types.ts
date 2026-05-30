@@ -1,4 +1,4 @@
-export const UPLOAD_TYPES = ['tickets', 'expenses'] as const;
+export const UPLOAD_TYPES = ['tickets', 'expenses', 'payments'] as const;
 
 export type UploadType = (typeof UPLOAD_TYPES)[number];
 
