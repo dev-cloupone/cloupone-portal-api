@@ -20,6 +20,10 @@ vi.mock('../../db/schema', () => ({
 
 import { createChain } from '../../__test-utils__/drizzle-chain'
 
+vi.mock('../consultant-payment.service', () => ({
+  regenerateDraft: vi.fn().mockResolvedValue(null),
+}))
+
 vi.mock('../../db', () => ({
   db: {
     select: vi.fn(),
