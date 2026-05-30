@@ -92,7 +92,12 @@ const listAllocations: RequestHandler = async (req, res, next) => {
     const projectId = idSchema.parse(req.params.id);
     await assertUserHasProjectAccess(req.userId!, req.userRole!, projectId, req.userClientId);
     const data = await projectService.listAllocations(projectId);
-    res.json({ data });
+
+    const filtered = req.userRole === 'super_admin'
+      ? data
+      : data.map(({ costRate, billingRate, ...rest }) => rest);
+
+    res.json({ data: filtered });
   } catch (err) {
     next(err);
   }
@@ -124,4 +129,21 @@ const removeAllocation: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const projectController = { list, getById, create, update, deactivate, listAllocations, addAllocation, removeAllocation };
+const updateAllocationRatesSchema = z.object({
+  costRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  billingRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
+});
+
+const updateAllocationRates: RequestHandler = async (req, res, next) => {
+  try {
+    const projectId = idSchema.parse(req.params.id);
+    const userId = idSchema.parse(req.params.userId);
+    const body = updateAllocationRatesSchema.parse(req.body);
+    const result = await projectService.updateAllocationRates(projectId, userId, body);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const projectController = { list, getById, create, update, deactivate, listAllocations, addAllocation, removeAllocation, updateAllocationRates };

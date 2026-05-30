@@ -197,6 +197,13 @@
       "when": 1780214400000,
       "tag": "0027_remove_client_charge_amount",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1780300800000,
+      "tag": "0028_merge_rates_into_allocations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { projects, clients, projectAllocations, users, consultantProjectRates, consultantProfiles } from '../db/schema';
+import { projects, clients, projectAllocations, users, consultantProfiles } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -189,6 +189,8 @@ export async function listAllocations(projectId: string) {
     userId: projectAllocations.userId,
     userName: users.name,
     userEmail: users.email,
+    costRate: projectAllocations.costRate,
+    billingRate: projectAllocations.billingRate,
     createdAt: projectAllocations.createdAt,
   })
     .from(projectAllocations)
@@ -197,40 +199,43 @@ export async function listAllocations(projectId: string) {
 }
 
 export async function addAllocation(projectId: string, userId: string) {
-  return await db.transaction(async (tx) => {
-    const [existing] = await tx.select({ id: projectAllocations.id })
-      .from(projectAllocations)
-      .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
-      .limit(1);
+  const [profile] = await db.select({ hourlyRate: consultantProfiles.hourlyRate })
+    .from(consultantProfiles)
+    .where(eq(consultantProfiles.userId, userId))
+    .limit(1);
 
-    if (existing) throw new AppError(PROJECT.ALLOCATION_EXISTS, 409);
+  const [project] = await db.select({ billingRate: projects.billingRate })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
 
-    const [created] = await tx.insert(projectAllocations).values({ projectId, userId }).returning();
+  const costRate = profile?.hourlyRate ?? '0.00';
+  const billingRate = project?.billingRate ?? '0.00';
 
-    // Auto-create consultantProjectRates with defaults
-    const [profile] = await tx.select({ hourlyRate: consultantProfiles.hourlyRate })
-      .from(consultantProfiles)
-      .where(eq(consultantProfiles.userId, userId))
-      .limit(1);
+  const result = await db.insert(projectAllocations)
+    .values({ projectId, userId, costRate, billingRate })
+    .onConflictDoNothing()
+    .returning();
 
-    const [project] = await tx.select({ billingRate: projects.billingRate })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
+  if (result.length === 0) throw new AppError(PROJECT.ALLOCATION_EXISTS, 409);
 
-    if (profile && project) {
-      await tx.insert(consultantProjectRates)
-        .values({
-          userId,
-          projectId,
-          costRate: profile.hourlyRate,
-          billingRate: project.billingRate,
-        })
-        .onConflictDoNothing();
-    }
+  return result[0];
+}
 
-    return created;
-  });
+export async function updateAllocationRates(projectId: string, userId: string, data: { costRate: string; billingRate: string }) {
+  const [existing] = await db.select({ id: projectAllocations.id })
+    .from(projectAllocations)
+    .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
+    .limit(1);
+
+  if (!existing) throw new AppError(PROJECT.ALLOCATION_NOT_FOUND, 404);
+
+  const [updated] = await db.update(projectAllocations)
+    .set({ costRate: data.costRate, billingRate: data.billingRate, updatedAt: new Date() })
+    .where(eq(projectAllocations.id, existing.id))
+    .returning();
+
+  return updated;
 }
 
 export async function removeAllocation(projectId: string, userId: string) {

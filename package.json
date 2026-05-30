@@ -11,7 +11,6 @@
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed:reports": "tsx src/db/seed-reports.ts",
-    "db:populate-rates": "tsx src/scripts/populate-consultant-project-rates.ts",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:run": "vitest run",

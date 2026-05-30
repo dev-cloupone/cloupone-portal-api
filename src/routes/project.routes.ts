@@ -18,6 +18,7 @@ router.post('/', auth, authorize('super_admin', 'gestor'), authenticatedRateLimi
 router.patch('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.update);
 router.delete('/:id', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.deactivate);
 router.post('/:id/allocations', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.addAllocation);
+router.patch('/:id/allocations/:userId', auth, authorize('super_admin'), authenticatedRateLimit, projectController.updateAllocationRates);
 router.delete('/:id/allocations/:userId', auth, authorize('super_admin', 'gestor'), authenticatedRateLimit, projectController.removeAllocation);
 
 export { router as projectRoutes };

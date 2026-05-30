@@ -17,10 +17,9 @@ vi.mock('../../db/schema', () => ({
     isActive: 'isActive', createdAt: 'createdAt', updatedAt: 'updatedAt',
   },
   clients: { id: 'id', companyName: 'companyName' },
-  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', createdAt: 'createdAt' },
+  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', costRate: 'costRate', billingRate: 'billingRate', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   users: { id: 'id', name: 'name', email: 'email' },
   consultantProfiles: { userId: 'userId', hourlyRate: 'hourlyRate' },
-  consultantProjectRates: { userId: 'userId', projectId: 'projectId', costRate: 'costRate', billingRate: 'billingRate' },
 }))
 
 vi.mock('../../utils/pagination', () => ({
@@ -158,31 +157,24 @@ describe('addAllocation', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('allocates consultant to project', async () => {
-    const allocation = { id: 'a1', projectId: 'p1', userId: 'u1', createdAt: new Date() }
+    const allocation = { id: 'a1', projectId: 'p1', userId: 'u1', costRate: '100', billingRate: '150', createdAt: new Date() }
 
-    vi.mocked(db.transaction).mockImplementation(async (cb) => {
-      const tx = {
-        select: vi.fn()
-          .mockReturnValueOnce(createChain([]) as never)   // no existing allocation
-          .mockReturnValueOnce(createChain([{ hourlyRate: '100' }]) as never)  // consultant profile
-          .mockReturnValueOnce(createChain([{ billingRate: '150' }]) as never), // project
-        insert: vi.fn().mockReturnValue(createChain([allocation]) as never),
-      }
-      return cb(tx as never)
-    })
+    vi.mocked(db.select)
+      .mockReturnValueOnce(createChain([{ hourlyRate: '100' }]) as never)  // consultant profile
+      .mockReturnValueOnce(createChain([{ billingRate: '150' }]) as never) // project
+
+    vi.mocked(db.insert).mockReturnValue(createChain([allocation]) as never)
 
     const result = await addAllocation('p1', 'u1')
     expect(result).toEqual(allocation)
   })
 
   it('throws 409 for duplicate allocation', async () => {
-    vi.mocked(db.transaction).mockImplementation(async (cb) => {
-      const tx = {
-        select: vi.fn().mockReturnValue(createChain([{ id: 'a1' }]) as never),
-        insert: vi.fn(),
-      }
-      return cb(tx as never)
-    })
+    vi.mocked(db.select)
+      .mockReturnValueOnce(createChain([{ hourlyRate: '100' }]) as never)
+      .mockReturnValueOnce(createChain([{ billingRate: '150' }]) as never)
+
+    vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
 
     await expect(addAllocation('p1', 'u1')).rejects.toMatchObject({ status: 409 })
   })

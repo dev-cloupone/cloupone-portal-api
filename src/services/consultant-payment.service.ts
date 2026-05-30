@@ -3,7 +3,7 @@ import { db } from '../db';
 import {
   consultantPayments,
   consultantPaymentLines,
-  consultantProjectRates,
+  projectAllocations,
   monthlyTimesheets,
   timeEntries,
   users,
@@ -48,13 +48,13 @@ async function buildPaymentLines(tx: Parameters<Parameters<typeof db.transaction
 
   const projectIds = entries.map(e => e.projectId);
   const rates = await tx.select({
-    projectId: consultantProjectRates.projectId,
-    costRate: consultantProjectRates.costRate,
+    projectId: projectAllocations.projectId,
+    costRate: projectAllocations.costRate,
   })
-    .from(consultantProjectRates)
+    .from(projectAllocations)
     .where(and(
-      eq(consultantProjectRates.userId, userId),
-      inArray(consultantProjectRates.projectId, projectIds),
+      eq(projectAllocations.userId, userId),
+      inArray(projectAllocations.projectId, projectIds),
     ));
 
   const rateMap = new Map(rates.map(r => [r.projectId, r.costRate]));
