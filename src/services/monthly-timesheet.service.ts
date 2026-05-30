@@ -4,6 +4,7 @@ import { monthlyTimesheets, timeEntries, users, projects, tickets } from '../db/
 import { AppError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
+import * as consultantPaymentService from './consultant-payment.service';
 
 const MSG = {
   NOT_FOUND: 'Timesheet mensal não encontrado.',
@@ -196,6 +197,13 @@ export async function approve(userId: string, year: number, month: number, appro
     })
     .where(eq(monthlyTimesheets.id, timesheet.id))
     .returning();
+
+  // Auto-generate/update payment draft (best-effort)
+  try {
+    await consultantPaymentService.regenerateDraft(userId, year, month, approvedById);
+  } catch (err) {
+    console.warn(`Auto-geração de payment draft falhou para ${userId} ${year}-${month}:`, err);
+  }
 
   return updated;
 }

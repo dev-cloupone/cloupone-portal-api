@@ -24,7 +24,9 @@ const list: RequestHandler = async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const userId = req.query.userId as string | undefined;
     const status = req.query.status as string | undefined;
-    const result = await paymentService.list({ page, limit, userId, status });
+    const year = req.query.year ? Number(req.query.year) : undefined;
+    const month = req.query.month ? Number(req.query.month) : undefined;
+    const result = await paymentService.list({ page, limit, userId, status, year, month });
     res.json(result);
   } catch (err) {
     next(err);

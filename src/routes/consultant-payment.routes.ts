@@ -7,6 +7,7 @@ import { consultantPaymentController } from '../controllers/consultant-payment.c
 const router = Router();
 
 router.get('/', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, consultantPaymentController.list);
+router.get('/pending-approvals', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, consultantPaymentController.pendingApprovals);
 router.get('/my', auth, authorize('consultor', 'gestor'), authenticatedRateLimit, consultantPaymentController.listMy);
 router.post('/', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, consultantPaymentController.generate);
 router.get('/:id', auth, authorize('super_admin', 'administrative', 'consultor', 'gestor'), authenticatedRateLimit, consultantPaymentController.getById);

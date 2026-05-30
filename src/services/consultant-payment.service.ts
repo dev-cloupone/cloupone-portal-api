@@ -28,6 +28,59 @@ const MSG = {
   NO_ENTRIES: 'Nenhum lançamento de horas encontrado para este consultor neste mês.',
 } as const;
 
+async function buildPaymentLines(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], userId: string, year: number, month: number) {
+  const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+
+  const entries = await tx.select({
+    projectId: timeEntries.projectId,
+    totalHours: sql<string>`SUM(${timeEntries.hours})`,
+  })
+    .from(timeEntries)
+    .where(and(
+      eq(timeEntries.userId, userId),
+      sql`${timeEntries.date} >= ${firstDay}`,
+      sql`${timeEntries.date} <= ${lastDay}`,
+    ))
+    .groupBy(timeEntries.projectId);
+
+  if (entries.length === 0) return null;
+
+  const projectIds = entries.map(e => e.projectId);
+  const rates = await tx.select({
+    projectId: consultantProjectRates.projectId,
+    costRate: consultantProjectRates.costRate,
+  })
+    .from(consultantProjectRates)
+    .where(and(
+      eq(consultantProjectRates.userId, userId),
+      inArray(consultantProjectRates.projectId, projectIds),
+    ));
+
+  const rateMap = new Map(rates.map(r => [r.projectId, r.costRate]));
+  let totalHours = 0;
+  let totalAmount = 0;
+
+  const lines = entries.map(entry => {
+    const hours = Number(entry.totalHours);
+    const costRate = rateMap.get(entry.projectId) ?? '0';
+    const rate = Number(costRate);
+    const subtotal = hours * rate;
+    totalHours += hours;
+    totalAmount += subtotal;
+    return {
+      projectId: entry.projectId,
+      calculatedHours: entry.totalHours,
+      appliedHours: entry.totalHours,
+      originalRate: costRate,
+      appliedRate: costRate,
+      subtotal: subtotal.toFixed(2),
+    };
+  });
+
+  return { lines, totalHours: totalHours.toFixed(2), totalAmount: totalAmount.toFixed(2) };
+}
+
 export async function generateDraft(userId: string, year: number, month: number, createdBy: string) {
   return await db.transaction(async (tx) => {
     // Verify timesheet is approved
@@ -57,67 +110,18 @@ export async function generateDraft(userId: string, year: number, month: number,
 
     if (existing) throw new AppError(MSG.PAYMENT_EXISTS, 409);
 
-    // Get time entries grouped by project
-    const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
-    const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+    const result = await buildPaymentLines(tx, userId, year, month);
+    if (!result) throw new AppError(MSG.NO_ENTRIES, 400);
 
-    const entries = await tx.select({
-      projectId: timeEntries.projectId,
-      totalHours: sql<string>`SUM(${timeEntries.hours})`,
-    })
-      .from(timeEntries)
-      .where(and(
-        eq(timeEntries.userId, userId),
-        sql`${timeEntries.date} >= ${firstDay}`,
-        sql`${timeEntries.date} <= ${lastDay}`,
-      ))
-      .groupBy(timeEntries.projectId);
-
-    if (entries.length === 0) throw new AppError(MSG.NO_ENTRIES, 400);
-
-    // Get rates for each project
-    const projectIds = entries.map(e => e.projectId);
-    const rates = await tx.select({
-      projectId: consultantProjectRates.projectId,
-      costRate: consultantProjectRates.costRate,
-    })
-      .from(consultantProjectRates)
-      .where(and(
-        eq(consultantProjectRates.userId, userId),
-        inArray(consultantProjectRates.projectId, projectIds),
-      ));
-
-    const rateMap = new Map(rates.map(r => [r.projectId, r.costRate]));
-
-    // Create payment
-    let totalHours = 0;
-    let totalAmount = 0;
-
-    const lines = entries.map(entry => {
-      const hours = Number(entry.totalHours);
-      const costRate = rateMap.get(entry.projectId) ?? '0';
-      const rate = Number(costRate);
-      const subtotal = hours * rate;
-      totalHours += hours;
-      totalAmount += subtotal;
-
-      return {
-        projectId: entry.projectId,
-        calculatedHours: entry.totalHours,
-        appliedHours: entry.totalHours,
-        originalRate: costRate,
-        appliedRate: costRate,
-        subtotal: subtotal.toFixed(2),
-      };
-    });
+    const { lines, totalHours, totalAmount } = result;
 
     const [payment] = await tx.insert(consultantPayments).values({
       userId,
       year,
       month,
       status: 'draft',
-      totalHours: totalHours.toFixed(2),
-      totalAmount: totalAmount.toFixed(2),
+      totalHours,
+      totalAmount,
       createdBy,
     }).returning();
 
@@ -127,6 +131,65 @@ export async function generateDraft(userId: string, year: number, month: number,
 
     return { ...payment, lines: createdLines };
   });
+}
+
+export async function regenerateDraft(userId: string, year: number, month: number, createdBy: string) {
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx.select()
+      .from(consultantPayments)
+      .where(and(
+        eq(consultantPayments.userId, userId),
+        eq(consultantPayments.year, year),
+        eq(consultantPayments.month, month),
+        ne(consultantPayments.status, 'cancelled'),
+      )).limit(1);
+
+    // If exists and NOT draft, don't touch (confirmed/paid = locked)
+    if (existing && existing.status !== 'draft') return existing;
+
+    const result = await buildPaymentLines(tx, userId, year, month);
+    if (!result) return null;
+
+    const { lines, totalHours, totalAmount } = result;
+
+    if (existing) {
+      await tx.delete(consultantPaymentLines)
+        .where(eq(consultantPaymentLines.paymentId, existing.id));
+      await tx.insert(consultantPaymentLines)
+        .values(lines.map(l => ({ ...l, paymentId: existing.id })));
+      const [updated] = await tx.update(consultantPayments).set({
+        totalHours, totalAmount, updatedAt: new Date(),
+      }).where(eq(consultantPayments.id, existing.id)).returning();
+      return updated;
+    } else {
+      const [payment] = await tx.insert(consultantPayments).values({
+        userId, year, month, status: 'draft',
+        totalHours, totalAmount, createdBy,
+      }).returning();
+      await tx.insert(consultantPaymentLines)
+        .values(lines.map(l => ({ ...l, paymentId: payment.id })));
+      return payment;
+    }
+  });
+}
+
+export async function getPendingApprovals(year: number, month: number) {
+  const results = await db.select({
+    consultantName: users.name,
+    status: monthlyTimesheets.status,
+  })
+    .from(monthlyTimesheets)
+    .innerJoin(users, eq(monthlyTimesheets.userId, users.id))
+    .where(and(
+      eq(monthlyTimesheets.year, year),
+      eq(monthlyTimesheets.month, month),
+      inArray(monthlyTimesheets.status, ['open', 'reopened']),
+    ));
+
+  return {
+    count: results.length,
+    consultants: results.map(r => r.consultantName),
+  };
 }
 
 export async function updateLines(paymentId: string, lines: { id: string; appliedHours: string; appliedRate: string }[], notes?: string) {

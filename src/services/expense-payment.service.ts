@@ -300,13 +300,19 @@ export async function remove(paymentId: string) {
   await db.delete(expensePayments).where(eq(expensePayments.id, paymentId));
 }
 
-export async function list(params: PaginationParams & { userId?: string; status?: string }) {
-  const { page, limit, userId, status } = params;
+export async function list(params: PaginationParams & { userId?: string; status?: string; year?: number; month?: number }) {
+  const { page, limit, userId, status, year, month } = params;
   const offset = (page - 1) * limit;
 
   const conditions: ReturnType<typeof eq>[] = [];
   if (userId) conditions.push(eq(expensePayments.userId, userId));
   if (status) conditions.push(eq(expensePayments.status, status as 'draft' | 'confirmed' | 'paid' | 'cancelled'));
+  if (year && month) {
+    const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
+    conditions.push(sql`${expensePayments.periodStart} >= ${firstDay}`);
+    conditions.push(sql`${expensePayments.periodStart} <= ${lastDay}`);
+  }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 

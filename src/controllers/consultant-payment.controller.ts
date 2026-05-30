@@ -141,6 +141,17 @@ const getReceipt: RequestHandler = async (req, res, next) => {
   }
 };
 
+const pendingApprovals: RequestHandler = async (req, res, next) => {
+  try {
+    const { year, month } = z.object({
+      year: z.coerce.number().int().min(2000).max(2100),
+      month: z.coerce.number().int().min(1).max(12),
+    }).parse(req.query);
+    const result = await paymentService.getPendingApprovals(year, month);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
 export const consultantPaymentController = {
   list,
   listMy,
@@ -153,4 +164,5 @@ export const consultantPaymentController = {
   revertPayment,
   deletePayment,
   getReceipt,
+  pendingApprovals,
 };
