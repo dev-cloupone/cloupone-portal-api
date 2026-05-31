@@ -7,6 +7,7 @@ import { buildMeta } from '../utils/pagination';
 
 import { assertUserHasProjectAccess } from '../utils/project-access';
 import { isDateInOpenPeriod } from './project-expense-period.service';
+import * as expensePaymentService from './expense-payment.service';
 
 const MSG = {
   NOT_FOUND: 'Despesa não encontrada.',
@@ -402,6 +403,19 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     ...(isCreatingForOther ? { approvedAt: new Date(), approvedBy: requestUserId } : {}),
   }).returning();
 
+  // Auto-generate expense payment draft for auto-approved expenses
+  if (isCreatingForOther && created.requiresReimbursement && consultantUserId) {
+    try {
+      await expensePaymentService.addExpenseToDraft(
+        created.id,
+        consultantUserId,
+        requestUserId,
+      );
+    } catch (err) {
+      console.warn(`Auto-geração de expense payment draft falhou para despesa ${created.id}:`, err);
+    }
+  }
+
   return created;
 }
 
@@ -442,6 +456,19 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
   if (entry.status !== 'approved') throw new AppError('Apenas despesas aprovadas podem ser revertidas.', 400);
   if (entry.reimbursedAt) throw new AppError('Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', 400);
 
+  // Check if expense is linked to a payment
+  const paymentLink = await expensePaymentService.checkExpensePaymentLink(id);
+  let removeResult: { removed: boolean; paymentDeleted: boolean } | null = null;
+  if (paymentLink.linked) {
+    if (paymentLink.paymentStatus !== 'draft') {
+      throw new AppError(
+        'Despesa vinculada a um pagamento confirmado/pago. Cancele o pagamento antes de reverter.',
+        400,
+      );
+    }
+    removeResult = await expensePaymentService.removeExpenseFromDraft(id);
+  }
+
   const now = new Date();
   const [updated] = await db.update(expenses).set({
     status: 'created',
@@ -452,7 +479,14 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
     updatedAt: now,
   }).where(eq(expenses.id, id)).returning();
 
-  return updated;
+  return {
+    ...updated,
+    paymentWarning: paymentLink.linked
+      ? removeResult?.paymentDeleted
+        ? 'Despesa removida do pagamento. O pagamento foi excluído por estar vazio.'
+        : 'Despesa removida do pagamento em rascunho.'
+      : null,
+  };
 }
 
 // --- Approval / Rejection (Phase 4) ---
@@ -544,6 +578,27 @@ export async function approveExpenses(
       }
     }
   });
+
+  // Auto-generate/aggregate expense payment drafts (best-effort)
+  const approvedExpenses = await db.select({
+    id: expenses.id,
+    consultantUserId: expenses.consultantUserId,
+    requiresReimbursement: expenses.requiresReimbursement,
+  }).from(expenses).where(inArray(expenses.id, ids));
+
+  for (const expense of approvedExpenses) {
+    if (expense.requiresReimbursement && expense.consultantUserId) {
+      try {
+        await expensePaymentService.addExpenseToDraft(
+          expense.id,
+          expense.consultantUserId,
+          approvedByUserId,
+        );
+      } catch (err) {
+        console.warn(`Auto-geração de expense payment draft falhou para despesa ${expense.id}:`, err);
+      }
+    }
+  }
 
   return { approved: ids.length };
 }

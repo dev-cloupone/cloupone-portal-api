@@ -204,6 +204,13 @@
       "when": 1780300800000,
       "tag": "0028_merge_rates_into_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1780387200000,
+      "tag": "0029_add_expense_payment_user_draft_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
-import { pgTable, uuid, date, decimal, text, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, date, decimal, text, timestamp, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { users } from './users';
 import { expenses } from './expenses';
 import { files } from './files';
@@ -26,6 +27,9 @@ export const expensePayments = pgTable('expense_payments', {
 }, (table) => [
   index('expense_payments_user_idx').on(table.userId),
   index('expense_payments_status_idx').on(table.status),
+  uniqueIndex('expense_payments_user_draft_unique')
+    .on(table.userId)
+    .where(sql`status = 'draft'`),
 ]);
 
 export const expensePaymentItems = pgTable('expense_payment_items', {

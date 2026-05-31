@@ -29,12 +29,18 @@ const MSG = {
 } as const;
 
 export async function getAvailablePeriods(userId: string) {
+  // Check for existing draft
+  const [existingDraft] = await db.select({ id: expensePayments.id })
+    .from(expensePayments)
+    .where(and(eq(expensePayments.userId, userId), eq(expensePayments.status, 'draft')))
+    .limit(1);
+
   // Get all projects where the consultant is allocated
   const allocations = await db.select({ projectId: projectAllocations.projectId })
     .from(projectAllocations)
     .where(eq(projectAllocations.userId, userId));
 
-  if (allocations.length === 0) return [];
+  if (allocations.length === 0) return { periods: [], existingDraftId: existingDraft?.id ?? null };
 
   const projectIds = allocations.map(a => a.projectId);
 
@@ -81,11 +87,26 @@ export async function getAvailablePeriods(userId: string) {
     }
   }
 
-  return result;
+  return { periods: result, existingDraftId: existingDraft?.id ?? null };
 }
 
 export async function generateDraft(userId: string, periodIds: string[], createdBy: string) {
   return await db.transaction(async (tx) => {
+    // Check if a draft already exists for this consultant
+    const [existingDraft] = await tx.select({ id: expensePayments.id })
+      .from(expensePayments)
+      .where(and(
+        eq(expensePayments.userId, userId),
+        eq(expensePayments.status, 'draft'),
+      )).limit(1);
+
+    if (existingDraft) {
+      throw new AppError(
+        'Já existe um pagamento em rascunho para este consultor. Edite ou exclua o rascunho existente.',
+        409,
+      );
+    }
+
     // Get the selected periods
     const selectedPeriods = await tx.select({
       id: projectExpensePeriods.id,
@@ -419,6 +440,185 @@ export async function getById(paymentId: string, requestUserId: string, requestU
     .where(eq(expensePaymentItems.expensePaymentId, paymentId));
 
   return { ...payment, items };
+}
+
+// --- Auto-draft functions ---
+
+export async function addExpenseToDraft(expenseId: string, userId: string, createdBy: string) {
+  return await db.transaction(async (tx) => {
+    const [expense] = await tx.select({
+      id: expenses.id,
+      status: expenses.status,
+      requiresReimbursement: expenses.requiresReimbursement,
+      amount: expenses.amount,
+      approvedAmount: expenses.approvedAmount,
+      date: expenses.date,
+      reimbursedAt: expenses.reimbursedAt,
+    }).from(expenses).where(eq(expenses.id, expenseId)).limit(1);
+
+    if (!expense) return null;
+    if (expense.status !== 'approved' || !expense.requiresReimbursement) return null;
+    if (expense.reimbursedAt) return null;
+
+    const existingItem = await tx.select({ id: expensePaymentItems.id })
+      .from(expensePaymentItems)
+      .innerJoin(expensePayments, eq(expensePaymentItems.expensePaymentId, expensePayments.id))
+      .where(and(
+        eq(expensePaymentItems.expenseId, expenseId),
+        ne(expensePayments.status, 'cancelled'),
+      )).limit(1);
+
+    if (existingItem.length > 0) return null;
+
+    const [existingDraft] = await tx.select()
+      .from(expensePayments)
+      .where(and(
+        eq(expensePayments.userId, userId),
+        eq(expensePayments.status, 'draft'),
+      )).limit(1);
+
+    const itemAmount = expense.approvedAmount ?? expense.amount;
+
+    if (existingDraft) {
+      await tx.insert(expensePaymentItems).values({
+        expensePaymentId: existingDraft.id,
+        expenseId,
+        amount: itemAmount,
+      });
+
+      const draftStart = new Date(existingDraft.periodStart);
+      const draftEnd = new Date(existingDraft.periodEnd);
+      const expDate = new Date(expense.date);
+      const newPeriodStart = draftStart <= expDate ? existingDraft.periodStart : expense.date;
+      const newPeriodEnd = draftEnd >= expDate ? existingDraft.periodEnd : expense.date;
+      const newTotal = (Number(existingDraft.totalAmount) + Number(itemAmount)).toFixed(2);
+
+      const [updatedDraft] = await tx.update(expensePayments).set({
+        periodStart: newPeriodStart,
+        periodEnd: newPeriodEnd,
+        totalAmount: newTotal,
+        updatedAt: new Date(),
+      }).where(eq(expensePayments.id, existingDraft.id)).returning();
+
+      return updatedDraft;
+    } else {
+      try {
+        const [payment] = await tx.insert(expensePayments).values({
+          userId,
+          periodStart: expense.date,
+          periodEnd: expense.date,
+          status: 'draft',
+          totalAmount: itemAmount,
+          createdBy,
+        }).returning();
+
+        await tx.insert(expensePaymentItems).values({
+          expensePaymentId: payment.id,
+          expenseId,
+          amount: itemAmount,
+        });
+
+        return payment;
+      } catch (err: any) {
+        // Unique constraint violation — race condition: another draft was created concurrently
+        if (err?.code === '23505') {
+          const [raceDraft] = await tx.select()
+            .from(expensePayments)
+            .where(and(eq(expensePayments.userId, userId), eq(expensePayments.status, 'draft')))
+            .limit(1);
+          if (raceDraft) {
+            await tx.insert(expensePaymentItems).values({
+              expensePaymentId: raceDraft.id, expenseId, amount: itemAmount,
+            });
+            const draftStart = new Date(raceDraft.periodStart);
+            const draftEnd = new Date(raceDraft.periodEnd);
+            const expDate = new Date(expense.date);
+            const newPeriodStart = draftStart <= expDate ? raceDraft.periodStart : expense.date;
+            const newPeriodEnd = draftEnd >= expDate ? raceDraft.periodEnd : expense.date;
+            const newTotal = (Number(raceDraft.totalAmount) + Number(itemAmount)).toFixed(2);
+            const [updatedDraft] = await tx.update(expensePayments).set({
+              periodStart: newPeriodStart, periodEnd: newPeriodEnd,
+              totalAmount: newTotal, updatedAt: new Date(),
+            }).where(eq(expensePayments.id, raceDraft.id)).returning();
+            return updatedDraft;
+          }
+        }
+        throw err;
+      }
+    }
+  });
+}
+
+export async function removeExpenseFromDraft(expenseId: string): Promise<{ removed: boolean; paymentDeleted: boolean } | null> {
+  return await db.transaction(async (tx) => {
+    const [item] = await tx.select({
+      itemId: expensePaymentItems.id,
+      paymentId: expensePaymentItems.expensePaymentId,
+      paymentStatus: expensePayments.status,
+    })
+      .from(expensePaymentItems)
+      .innerJoin(expensePayments, eq(expensePaymentItems.expensePaymentId, expensePayments.id))
+      .where(and(
+        eq(expensePaymentItems.expenseId, expenseId),
+        ne(expensePayments.status, 'cancelled'),
+      )).limit(1);
+
+    if (!item) return null;
+
+    if (item.paymentStatus !== 'draft') {
+      throw new AppError(
+        'Despesa vinculada a um pagamento confirmado/pago. Cancele o pagamento antes de reverter.',
+        400
+      );
+    }
+
+    await tx.delete(expensePaymentItems).where(eq(expensePaymentItems.id, item.itemId));
+
+    const [remaining] = await tx.select({ count: drizzleCount() })
+      .from(expensePaymentItems)
+      .where(eq(expensePaymentItems.expensePaymentId, item.paymentId));
+
+    if (remaining.count === 0) {
+      await tx.delete(expensePayments).where(eq(expensePayments.id, item.paymentId));
+      return { removed: true, paymentDeleted: true };
+    }
+
+    const items = await tx.select({
+      amount: expensePaymentItems.amount,
+      expenseDate: expenses.date,
+    })
+      .from(expensePaymentItems)
+      .innerJoin(expenses, eq(expensePaymentItems.expenseId, expenses.id))
+      .where(eq(expensePaymentItems.expensePaymentId, item.paymentId));
+
+    const dates = items.map(i => i.expenseDate).sort();
+    const totalAmount = items.reduce((sum, i) => sum + Number(i.amount), 0);
+
+    await tx.update(expensePayments).set({
+      periodStart: dates[0],
+      periodEnd: dates[dates.length - 1],
+      totalAmount: totalAmount.toFixed(2),
+      updatedAt: new Date(),
+    }).where(eq(expensePayments.id, item.paymentId));
+
+    return { removed: true, paymentDeleted: false };
+  });
+}
+
+export async function checkExpensePaymentLink(expenseId: string): Promise<{ linked: boolean; paymentStatus?: string; paymentId?: string }> {
+  const [item] = await db.select({
+    paymentId: expensePayments.id,
+    paymentStatus: expensePayments.status,
+  })
+    .from(expensePaymentItems)
+    .innerJoin(expensePayments, eq(expensePaymentItems.expensePaymentId, expensePayments.id))
+    .where(and(
+      eq(expensePaymentItems.expenseId, expenseId),
+      ne(expensePayments.status, 'cancelled'),
+    )).limit(1);
+
+  if (!item) return { linked: false };
+  return { linked: true, paymentStatus: item.paymentStatus, paymentId: item.paymentId };
 }
 
 export async function getReceipt(paymentId: string, requestUserId: string, requestUserRole: string) {
