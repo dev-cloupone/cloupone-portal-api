@@ -105,7 +105,9 @@ const listPending: RequestHandler = async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const consultantId = req.query.consultantId as string | undefined;
     const projectId = req.query.projectId as string | undefined;
-    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId, requestUserId: req.userId!, requestUserRole: req.userRole! });
+    const year = req.query.year ? z.coerce.number().int().min(2000).parse(req.query.year) : undefined;
+    const month = req.query.month ? z.coerce.number().int().min(1).max(12).parse(req.query.month) : undefined;
+    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId, year, month, requestUserId: req.userId!, requestUserRole: req.userRole! });
     res.json(result);
   } catch (err) {
     next(err);

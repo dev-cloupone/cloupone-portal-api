@@ -1,4 +1,4 @@
-import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql } from 'drizzle-orm';
+import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql, gte, lt } from 'drizzle-orm';
 import { db } from '../db';
 import { expenses, expenseComments, projectExpenseCategories, projects, projectAllocations, users, clients, files } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -491,13 +491,24 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
 
 // --- Approval / Rejection (Phase 4) ---
 
-export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string; requestUserId: string; requestUserRole: string }) {
-  const { page, limit, consultantId, projectId, requestUserId, requestUserRole } = params;
+export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string; year?: number; month?: number; requestUserId: string; requestUserRole: string }) {
+  const { page, limit, consultantId, projectId, year, month, requestUserId, requestUserRole } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [inArray(expenses.status, ['created', 'submitted'])];
   if (consultantId) conditions.push(eq(expenses.consultantUserId, consultantId));
   if (projectId) conditions.push(eq(expenses.projectId, projectId));
+  if ((year && !month) || (!year && month)) {
+    throw new AppError('Both year and month are required for date filtering', 400);
+  }
+  if (year && month) {
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    conditions.push(gte(expenses.date, startDate));
+    conditions.push(lt(expenses.date, endDate));
+  }
 
   // Project access: gestor only sees expenses from allocated projects
   if (requestUserRole !== 'super_admin') {
