@@ -1,4 +1,4 @@
-import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql } from 'drizzle-orm';
+import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql, gte, lt } from 'drizzle-orm';
 import { db } from '../db';
 import { expenses, expenseComments, projectExpenseCategories, projects, projectAllocations, users, clients, files } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -7,6 +7,7 @@ import { buildMeta } from '../utils/pagination';
 
 import { assertUserHasProjectAccess } from '../utils/project-access';
 import { isDateInOpenPeriod } from './project-expense-period.service';
+import * as expensePaymentService from './expense-payment.service';
 
 const MSG = {
   NOT_FOUND: 'Despesa não encontrada.',
@@ -64,8 +65,7 @@ const expenseSelectFields = {
   description: expenses.description,
   amount: expenses.amount,
   kmQuantity: expenses.kmQuantity,
-  clientChargeAmount: expenses.clientChargeAmount,
-  clientChargeAmountManuallySet: expenses.clientChargeAmountManuallySet,
+  approvedAmount: expenses.approvedAmount,
   receiptFileId: expenses.receiptFileId,
   receiptUrl: files.url,
   requiresReimbursement: expenses.requiresReimbursement,
@@ -186,6 +186,23 @@ export async function getMonthExpenses(
     }
     conditions.push(eq(expenses.consultantUserId, consultantUserId));
     conditions.push(eq(expenses.projectId, projectId));
+  } else if (consultantUserId) {
+    // Consultant-scoped mode without project: all expenses for this consultant across projects
+    if (userRole === 'consultor') {
+      throw new AppError('Consultores não podem visualizar despesas de outros.', 403);
+    }
+    if (userRole === 'gestor') {
+      const gestorAllocations = await db
+        .select({ projectId: projectAllocations.projectId })
+        .from(projectAllocations)
+        .where(eq(projectAllocations.userId, userId));
+      const gestorProjectIds = gestorAllocations.map(r => r.projectId);
+      if (gestorProjectIds.length === 0) {
+        return { year, month, expenses: [], totalAmount: 0 };
+      }
+      conditions.push(inArray(expenses.projectId, gestorProjectIds));
+    }
+    conditions.push(eq(expenses.consultantUserId, consultantUserId));
   } else {
     // Normal mode: "Minhas despesas" — only the user's own expenses
     // For gestors/admins: exclude expenses they created on behalf of other consultants
@@ -257,8 +274,6 @@ interface UpsertExpenseInput {
   description?: string | null;
   amount: string;
   kmQuantity?: string | null;
-  clientChargeAmount?: string | null;
-  clientChargeAmountManuallySet?: boolean;
   receiptFileId?: string | null;
   requiresReimbursement?: boolean;
   templateId?: string | null;
@@ -339,14 +354,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     }
   }
 
-  // V2: client_charge_amount logic
   const isGestorOrAdmin = requestUserRole === 'gestor' || requestUserRole === 'super_admin';
-  let clientChargeAmount = computedAmount;
-  let clientChargeAmountManuallySet = false;
-  if (isGestorOrAdmin && data.clientChargeAmount != null) {
-    clientChargeAmount = data.clientChargeAmount;
-    clientChargeAmountManuallySet = true;
-  }
 
   // V2: requires_reimbursement defaults
   const defaultReimbursement = requestUserRole === 'consultor';
@@ -373,15 +381,6 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       throw new AppError(MSG.CANNOT_EDIT_REIMBURSEMENT, 400);
     }
 
-    // V2: Recalculate client_charge if not manually set
-    if (!existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
-      clientChargeAmount = computedAmount;
-    } else if (existing.clientChargeAmountManuallySet && !clientChargeAmountManuallySet) {
-      // Keep existing manual value
-      clientChargeAmount = existing.clientChargeAmount;
-      clientChargeAmountManuallySet = true;
-    }
-
     const [updated] = await db.update(expenses).set({
       projectId: data.projectId,
       consultantUserId: consultantUserId,
@@ -390,8 +389,6 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       description: data.description ?? null,
       amount: computedAmount,
       kmQuantity,
-      clientChargeAmount,
-      clientChargeAmountManuallySet,
       receiptFileId: data.receiptFileId ?? null,
       requiresReimbursement: data.requiresReimbursement ?? existing.requiresReimbursement,
       templateId: data.templateId ?? null,
@@ -416,14 +413,25 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     description: data.description ?? null,
     amount: computedAmount,
     kmQuantity,
-    clientChargeAmount,
-    clientChargeAmountManuallySet,
     receiptFileId: data.receiptFileId ?? null,
     requiresReimbursement: data.requiresReimbursement ?? defaultReimbursement,
     templateId: data.templateId ?? null,
     status: initialStatus,
     ...(isCreatingForOther ? { approvedAt: new Date(), approvedBy: requestUserId } : {}),
   }).returning();
+
+  // Auto-generate expense payment draft for auto-approved expenses
+  if (isCreatingForOther && created.requiresReimbursement && consultantUserId) {
+    try {
+      await expensePaymentService.addExpenseToDraft(
+        created.id,
+        consultantUserId,
+        requestUserId,
+      );
+    } catch (err) {
+      console.warn(`Auto-geração de expense payment draft falhou para despesa ${created.id}:`, err);
+    }
+  }
 
   return created;
 }
@@ -465,6 +473,19 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
   if (entry.status !== 'approved') throw new AppError('Apenas despesas aprovadas podem ser revertidas.', 400);
   if (entry.reimbursedAt) throw new AppError('Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', 400);
 
+  // Check if expense is linked to a payment
+  const paymentLink = await expensePaymentService.checkExpensePaymentLink(id);
+  let removeResult: { removed: boolean; paymentDeleted: boolean } | null = null;
+  if (paymentLink.linked) {
+    if (paymentLink.paymentStatus !== 'draft') {
+      throw new AppError(
+        'Despesa vinculada a um pagamento confirmado/pago. Cancele o pagamento antes de reverter.',
+        400,
+      );
+    }
+    removeResult = await expensePaymentService.removeExpenseFromDraft(id);
+  }
+
   const now = new Date();
   const [updated] = await db.update(expenses).set({
     status: 'created',
@@ -475,18 +496,36 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
     updatedAt: now,
   }).where(eq(expenses.id, id)).returning();
 
-  return updated;
+  return {
+    ...updated,
+    paymentWarning: paymentLink.linked
+      ? removeResult?.paymentDeleted
+        ? 'Despesa removida do pagamento. O pagamento foi excluído por estar vazio.'
+        : 'Despesa removida do pagamento em rascunho.'
+      : null,
+  };
 }
 
 // --- Approval / Rejection (Phase 4) ---
 
-export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string; requestUserId: string; requestUserRole: string }) {
-  const { page, limit, consultantId, projectId, requestUserId, requestUserRole } = params;
+export async function listPendingApprovals(params: PaginationParams & { consultantId?: string; projectId?: string; year?: number; month?: number; requestUserId: string; requestUserRole: string }) {
+  const { page, limit, consultantId, projectId, year, month, requestUserId, requestUserRole } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [inArray(expenses.status, ['created', 'submitted'])];
   if (consultantId) conditions.push(eq(expenses.consultantUserId, consultantId));
   if (projectId) conditions.push(eq(expenses.projectId, projectId));
+  if ((year && !month) || (!year && month)) {
+    throw new AppError('Both year and month are required for date filtering', 400);
+  }
+  if (year && month) {
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    conditions.push(gte(expenses.date, startDate));
+    conditions.push(lt(expenses.date, endDate));
+  }
 
   // Project access: gestor only sees expenses from allocated projects
   if (requestUserRole !== 'super_admin') {
@@ -535,7 +574,7 @@ export async function listPendingApprovals(params: PaginationParams & { consulta
 export async function approveExpenses(
   ids: string[],
   approvedByUserId: string,
-  updates?: Record<string, { clientChargeAmount: string }>,
+  updates?: Record<string, { approvedAmount?: string }>,
 ) {
   const entries = await db
     .select({ id: expenses.id, status: expenses.status })
@@ -558,16 +597,36 @@ export async function approveExpenses(
 
     if (updates) {
       for (const [expenseId, data] of Object.entries(updates)) {
-        if (ids.includes(expenseId)) {
+        if (ids.includes(expenseId) && data.approvedAmount) {
           await tx.update(expenses).set({
-            clientChargeAmount: data.clientChargeAmount,
-            clientChargeAmountManuallySet: true,
+            approvedAmount: data.approvedAmount,
             updatedAt: now,
           }).where(eq(expenses.id, expenseId));
         }
       }
     }
   });
+
+  // Auto-generate/aggregate expense payment drafts (best-effort)
+  const approvedExpenses = await db.select({
+    id: expenses.id,
+    consultantUserId: expenses.consultantUserId,
+    requiresReimbursement: expenses.requiresReimbursement,
+  }).from(expenses).where(inArray(expenses.id, ids));
+
+  for (const expense of approvedExpenses) {
+    if (expense.requiresReimbursement && expense.consultantUserId) {
+      try {
+        await expensePaymentService.addExpenseToDraft(
+          expense.id,
+          expense.consultantUserId,
+          approvedByUserId,
+        );
+      } catch (err) {
+        console.warn(`Auto-geração de expense payment draft falhou para despesa ${expense.id}:`, err);
+      }
+    }
+  }
 
   return { approved: ids.length };
 }

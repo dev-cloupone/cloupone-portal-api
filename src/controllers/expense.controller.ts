@@ -15,8 +15,6 @@ const upsertExpenseSchema = z.object({
   description: z.string().max(500, V.max('Descrição', 500)).optional().nullable(),
   amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
   kmQuantity: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
-  clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
-  clientChargeAmountManuallySet: z.boolean().optional(),
   receiptFileId: z.string().uuid(V.uuidInvalid('Comprovante')).nullable().optional(),
   requiresReimbursement: z.boolean().optional(),
   templateId: z.string().uuid(V.uuidInvalid('Template')).nullable().optional(),
@@ -28,7 +26,7 @@ const approveExpensesSchema = z.object({
   updates: z.record(
     z.string().uuid(),
     z.object({
-      clientChargeAmount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido'),
+      approvedAmount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Valor inválido').optional(),
     })
   ).optional(),
 });
@@ -107,7 +105,9 @@ const listPending: RequestHandler = async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const consultantId = req.query.consultantId as string | undefined;
     const projectId = req.query.projectId as string | undefined;
-    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId, requestUserId: req.userId!, requestUserRole: req.userRole! });
+    const year = req.query.year ? z.coerce.number().int().min(2000).parse(req.query.year) : undefined;
+    const month = req.query.month ? z.coerce.number().int().min(1).max(12).parse(req.query.month) : undefined;
+    const result = await expenseService.listPendingApprovals({ page, limit, consultantId, projectId, year, month, requestUserId: req.userId!, requestUserRole: req.userRole! });
     res.json(result);
   } catch (err) {
     next(err);

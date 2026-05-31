@@ -17,8 +17,9 @@ vi.mock('../../db/schema', () => ({
     isActive: 'isActive', createdAt: 'createdAt', updatedAt: 'updatedAt',
   },
   clients: { id: 'id', companyName: 'companyName' },
-  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', createdAt: 'createdAt' },
+  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', costRate: 'costRate', billingRate: 'billingRate', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   users: { id: 'id', name: 'name', email: 'email' },
+  consultantProfiles: { userId: 'userId', hourlyRate: 'hourlyRate' },
 }))
 
 vi.mock('../../utils/pagination', () => ({
@@ -35,6 +36,7 @@ vi.mock('../../db', () => ({
     insert: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   },
 }))
 
@@ -155,21 +157,25 @@ describe('addAllocation', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('allocates consultant to project', async () => {
-    // No existing allocation
-    const selectChain = createChain([])
-    vi.mocked(db.select).mockReturnValue(selectChain as never)
+    const allocation = { id: 'a1', projectId: 'p1', userId: 'u1', costRate: '100', billingRate: '150', createdAt: new Date() }
 
-    const allocation = { id: 'a1', projectId: 'p1', userId: 'u1', createdAt: new Date() }
-    const insertChain = createChain([allocation])
-    vi.mocked(db.insert).mockReturnValue(insertChain as never)
+    vi.mocked(db.select)
+      .mockReturnValueOnce(createChain([{ hourlyRate: '100' }]) as never)  // consultant profile
+      .mockReturnValueOnce(createChain([{ billingRate: '150' }]) as never) // project
+
+    vi.mocked(db.insert).mockReturnValue(createChain([allocation]) as never)
 
     const result = await addAllocation('p1', 'u1')
     expect(result).toEqual(allocation)
-    expect(db.insert).toHaveBeenCalled()
   })
 
   it('throws 409 for duplicate allocation', async () => {
-    vi.mocked(db.select).mockReturnValue(createChain([{ id: 'a1' }]) as never)
+    vi.mocked(db.select)
+      .mockReturnValueOnce(createChain([{ hourlyRate: '100' }]) as never)
+      .mockReturnValueOnce(createChain([{ billingRate: '150' }]) as never)
+
+    vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
+
     await expect(addAllocation('p1', 'u1')).rejects.toMatchObject({ status: 409 })
   })
 })

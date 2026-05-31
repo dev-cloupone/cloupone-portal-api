@@ -92,8 +92,7 @@ export const expenses = pgTable('expenses', {
   /** @deprecated V2 removed auto-approval. Field kept for backwards compatibility. */
   autoApproved: boolean('auto_approved').default(false).notNull(),
   kmQuantity: decimal('km_quantity', { precision: 10, scale: 2 }),
-  clientChargeAmount: decimal('client_charge_amount', { precision: 10, scale: 2 }).notNull().default('0'),
-  clientChargeAmountManuallySet: boolean('client_charge_amount_manually_set').default(false).notNull(),
+  approvedAmount: decimal('approved_amount', { precision: 10, scale: 2 }),
   submittedAt: timestamp('submitted_at'),
   approvedAt: timestamp('approved_at'),
   approvedBy: uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),
