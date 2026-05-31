@@ -24,6 +24,7 @@ const MSG = {
   NOT_CONFIRMED: 'Apenas pagamentos confirmados podem ser pagos.',
   ALREADY_CANCELLED: 'Este pagamento já está cancelado.',
   NOT_CONFIRMED_REVERT: 'Apenas pagamentos confirmados podem ser revertidos para rascunho.',
+  USER_HAS_DRAFT: 'Este consultor já possui um pagamento em rascunho. Exclua ou confirme o rascunho existente antes de reverter.',
   NOT_DRAFT_DELETE: 'Apenas pagamentos em rascunho podem ser excluídos.',
   ACCESS_DENIED: 'Você não tem acesso a este pagamento.',
 } as const;
@@ -297,6 +298,17 @@ export async function revert(paymentId: string) {
 
   if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
   if (payment.status !== 'confirmed') throw new AppError(MSG.NOT_CONFIRMED_REVERT, 400);
+
+  // Check if user already has a draft payment (unique constraint)
+  const [existingDraft] = await db.select({ id: expensePayments.id })
+    .from(expensePayments)
+    .where(and(
+      eq(expensePayments.userId, payment.userId),
+      eq(expensePayments.status, 'draft'),
+    ))
+    .limit(1);
+
+  if (existingDraft) throw new AppError(MSG.USER_HAS_DRAFT, 409);
 
   const now = new Date();
   const [updated] = await db.update(expensePayments).set({
