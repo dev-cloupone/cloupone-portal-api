@@ -186,6 +186,23 @@ export async function getMonthExpenses(
     }
     conditions.push(eq(expenses.consultantUserId, consultantUserId));
     conditions.push(eq(expenses.projectId, projectId));
+  } else if (consultantUserId) {
+    // Consultant-scoped mode without project: all expenses for this consultant across projects
+    if (userRole === 'consultor') {
+      throw new AppError('Consultores não podem visualizar despesas de outros.', 403);
+    }
+    if (userRole === 'gestor') {
+      const gestorAllocations = await db
+        .select({ projectId: projectAllocations.projectId })
+        .from(projectAllocations)
+        .where(eq(projectAllocations.userId, userId));
+      const gestorProjectIds = gestorAllocations.map(r => r.projectId);
+      if (gestorProjectIds.length === 0) {
+        return { year, month, expenses: [], totalAmount: 0 };
+      }
+      conditions.push(inArray(expenses.projectId, gestorProjectIds));
+    }
+    conditions.push(eq(expenses.consultantUserId, consultantUserId));
   } else {
     // Normal mode: "Minhas despesas" — only the user's own expenses
     // For gestors/admins: exclude expenses they created on behalf of other consultants
