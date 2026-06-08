@@ -24,6 +24,10 @@ vi.mock('../consultant-payment.service', () => ({
   regenerateDraft: vi.fn().mockResolvedValue(null),
 }))
 
+vi.mock('../invoice.service', () => ({
+  regenerateInvoiceDraftsForConsultant: vi.fn().mockResolvedValue(null),
+}))
+
 vi.mock('../../db', () => ({
   db: {
     select: vi.fn(),
