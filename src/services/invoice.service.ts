@@ -333,31 +333,9 @@ async function regenerateInvoiceDraftForProject(projectId: string, consultantId:
       if (draftInvoice) {
         targetInvoiceId = draftInvoice.id;
       } else {
-        // All are issued/paid → create separate draft
-        const [project] = await tx.select({
-          clientId: projects.clientId,
-          clientName: clients.companyName,
-          clientCnpj: clients.cnpj,
-        })
-          .from(projects)
-          .innerJoin(clients, eq(projects.clientId, clients.id))
-          .where(eq(projects.id, projectId))
-          .limit(1);
-
-        if (!project) return;
-
-        const [newInvoice] = await tx.insert(invoices).values({
-          clientId: project.clientId,
-          projectId,
-          year,
-          month,
-          status: 'draft',
-          clientName: project.clientName,
-          clientCnpj: project.clientCnpj,
-          createdBy: triggeredBy,
-        }).returning();
-
-        targetInvoiceId = newInvoice.id;
+        // All are issued/paid → skip, hours already invoiced
+        logger.info({ projectId, consultantId, year, month }, 'Skipping invoice regen: active invoice already issued/paid');
+        return;
       }
     }
 
