@@ -2,9 +2,11 @@ import { eq, ne, and, sql, count as drizzleCount, lt, desc } from 'drizzle-orm';
 import { db } from '../db';
 import { monthlyTimesheets, timeEntries, users, projects, tickets } from '../db/schema';
 import { AppError } from '../utils/app-error';
+import { logger } from '../utils/logger';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import * as consultantPaymentService from './consultant-payment.service';
+import * as invoiceService from './invoice.service';
 
 const MSG = {
   NOT_FOUND: 'Timesheet mensal não encontrado.',
@@ -202,7 +204,14 @@ export async function approve(userId: string, year: number, month: number, appro
   try {
     await consultantPaymentService.regenerateDraft(userId, year, month, approvedById);
   } catch (err) {
-    console.warn(`Auto-geração de payment draft falhou para ${userId} ${year}-${month}:`, err);
+    logger.warn({ userId, year, month, err }, 'Auto-generation of payment draft failed');
+  }
+
+  // Auto-generate/update invoice drafts for each project (best-effort)
+  try {
+    await invoiceService.regenerateInvoiceDraftsForConsultant(userId, year, month, approvedById);
+  } catch (err) {
+    logger.warn({ userId, year, month, err }, 'Auto-generation of invoice drafts failed');
   }
 
   return updated;
