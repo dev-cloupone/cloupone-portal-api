@@ -232,6 +232,13 @@
       "when": 1780646400000,
       "tag": "0032_allow_multiple_active_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1780732800000,
+      "tag": "0033_add_expense_invoice_draft_unique",
+      "breakpoints": true
     }
   ]
 }

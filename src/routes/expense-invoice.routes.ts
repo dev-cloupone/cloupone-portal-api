@@ -16,5 +16,6 @@ router.post('/:id/pay', auth, authorize('super_admin', 'administrative'), authen
 router.post('/:id/cancel', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, expenseInvoiceController.cancel);
 router.delete('/:id', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, expenseInvoiceController.deleteInvoice);
 router.get('/:id/pdf', auth, authorize('super_admin', 'administrative', 'client'), authenticatedRateLimit, expenseInvoiceController.getPdf);
+router.delete('/:id/items/:itemId', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, expenseInvoiceController.removeItem);
 
 export { router as expenseInvoiceRoutes };

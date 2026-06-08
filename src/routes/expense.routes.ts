@@ -26,4 +26,7 @@ router.get('/reimbursements', authorize('super_admin'), expenseController.listRe
 router.post('/reimburse', authorize('super_admin'), expenseController.markAsReimbursed);
 router.post('/:id/unreimburse', authorize('super_admin'), expenseController.unmarkReimbursement);
 
+// Must be after all named GET routes (/month, /week, /pending, /reimbursements)
+router.get('/:id', expenseController.getById);
+
 export { router as expenseRoutes };

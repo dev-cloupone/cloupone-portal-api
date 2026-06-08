@@ -133,6 +133,17 @@ const getPdf: RequestHandler = async (req, res, next) => {
   }
 };
 
+const removeItem: RequestHandler = async (req, res, next) => {
+  try {
+    const invoiceId = idSchema.parse(req.params.id);
+    const itemId = idSchema.parse(req.params.itemId);
+    const result = await invoiceService.removeItem(invoiceId, itemId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const expenseInvoiceController = {
   list,
   listMy,
@@ -144,4 +155,5 @@ export const expenseInvoiceController = {
   cancel: cancelInvoice,
   deleteInvoice,
   getPdf,
+  removeItem,
 };

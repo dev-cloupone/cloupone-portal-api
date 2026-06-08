@@ -8,6 +8,7 @@ import { buildMeta } from '../utils/pagination';
 import { assertUserHasProjectAccess } from '../utils/project-access';
 import { isDateInOpenPeriod } from './project-expense-period.service';
 import * as expensePaymentService from './expense-payment.service';
+import * as expenseInvoiceService from './expense-invoice.service';
 
 const MSG = {
   NOT_FOUND: 'Despesa não encontrada.',
@@ -151,6 +152,37 @@ async function fetchCreatedByNames(expenseRows: { createdByUserId: string; consu
 }
 
 // --- Core functions ---
+
+export async function getExpenseById(id: string, requestUserId: string, requestUserRole: string) {
+  const rows = await buildExpenseQuery()
+    .where(eq(expenses.id, id))
+    .limit(1);
+
+  if (rows.length === 0) throw new AppError(MSG.NOT_FOUND, 404);
+
+  const row = rows[0];
+
+  // Access check
+  if (requestUserRole === 'consultor') {
+    if (row.createdByUserId !== requestUserId && row.consultantUserId !== requestUserId) {
+      throw new AppError(MSG.NOT_FOUND, 404);
+    }
+  } else if (requestUserRole === 'gestor') {
+    await assertUserHasProjectAccess(requestUserId, requestUserRole, row.projectId);
+  }
+  // super_admin and administrative can see all
+
+  const { createdByMap, consultantMap, revertedByMap } = await fetchCreatedByNames([row]);
+  const rejectionComments = await fetchRejectionComments([row.id]);
+
+  return {
+    ...row,
+    createdByName: createdByMap[row.createdByUserId] ?? '',
+    consultantName: row.consultantUserId ? (consultantMap[row.consultantUserId] ?? null) : null,
+    revertedByName: row.revertedBy ? (revertedByMap[row.revertedBy] ?? null) : null,
+    rejectionComment: rejectionComments[row.id] ?? null,
+  };
+}
 
 export async function getMonthExpenses(
   userId: string,
@@ -433,6 +465,15 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     }
   }
 
+  // Auto-generate expense invoice draft for auto-approved expenses (all approved, not just reimbursable)
+  if (isCreatingForOther) {
+    try {
+      await expenseInvoiceService.addExpenseToInvoiceDraft(created.id, requestUserId);
+    } catch (err) {
+      console.warn(`Auto-geração de expense invoice draft falhou para despesa ${created.id}:`, err);
+    }
+  }
+
   return created;
 }
 
@@ -486,6 +527,19 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
     removeResult = await expensePaymentService.removeExpenseFromDraft(id);
   }
 
+  // Check if expense is linked to an invoice
+  const invoiceLink = await expenseInvoiceService.checkExpenseInvoiceLink(id);
+  let invoiceRemoveResult: { removed: boolean; invoiceDeleted: boolean } | null = null;
+  if (invoiceLink.linked) {
+    if (invoiceLink.invoiceStatus !== 'draft') {
+      throw new AppError(
+        'Despesa vinculada a uma fatura emitida/paga. Cancele a fatura antes de reverter.',
+        400,
+      );
+    }
+    invoiceRemoveResult = await expenseInvoiceService.removeExpenseFromInvoiceDraft(id);
+  }
+
   const now = new Date();
   const [updated] = await db.update(expenses).set({
     status: 'created',
@@ -502,6 +556,11 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
       ? removeResult?.paymentDeleted
         ? 'Despesa removida do pagamento. O pagamento foi excluído por estar vazio.'
         : 'Despesa removida do pagamento em rascunho.'
+      : null,
+    invoiceWarning: invoiceLink.linked
+      ? invoiceRemoveResult?.invoiceDeleted
+        ? 'Despesa removida da fatura. A fatura foi excluída por estar vazia.'
+        : 'Despesa removida da fatura em rascunho.'
       : null,
   };
 }
@@ -625,6 +684,15 @@ export async function approveExpenses(
       } catch (err) {
         console.warn(`Auto-geração de expense payment draft falhou para despesa ${expense.id}:`, err);
       }
+    }
+  }
+
+  // Auto-generate/aggregate expense invoice drafts (best-effort, all approved expenses)
+  for (const expense of approvedExpenses) {
+    try {
+      await expenseInvoiceService.addExpenseToInvoiceDraft(expense.id, approvedByUserId);
+    } catch (err) {
+      console.warn(`Auto-geração de expense invoice draft falhou para despesa ${expense.id}:`, err);
     }
   }
 
