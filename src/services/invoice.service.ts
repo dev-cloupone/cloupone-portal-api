@@ -170,17 +170,17 @@ export async function generateDraft(projectId: string, year: number, month: numb
 
     if (!project) throw new AppError('Projeto não encontrado.', 404);
 
-    // Check no active invoice exists for project/month
-    const [existing] = await tx.select({ id: invoices.id })
+    // Check no draft invoice exists for project/month
+    const [existingDraft] = await tx.select({ id: invoices.id })
       .from(invoices)
       .where(and(
         eq(invoices.projectId, projectId),
         eq(invoices.year, year),
         eq(invoices.month, month),
-        ne(invoices.status, 'cancelled'),
+        eq(invoices.status, 'draft'),
       )).limit(1);
 
-    if (existing) throw new AppError(MSG.INVOICE_EXISTS, 409);
+    if (existingDraft) throw new AppError(MSG.INVOICE_EXISTS, 409);
 
     // Get time entries grouped by consultant
     const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -333,9 +333,31 @@ async function regenerateInvoiceDraftForProject(projectId: string, consultantId:
       if (draftInvoice) {
         targetInvoiceId = draftInvoice.id;
       } else {
-        // All are issued/paid → skip, hours already invoiced
-        logger.info({ projectId, consultantId, year, month }, 'Skipping invoice regen: active invoice already issued/paid');
-        return;
+        // All are issued/paid → create new draft for unfilled hours
+        const [project] = await tx.select({
+          clientId: projects.clientId,
+          clientName: clients.companyName,
+          clientCnpj: clients.cnpj,
+        })
+          .from(projects)
+          .innerJoin(clients, eq(projects.clientId, clients.id))
+          .where(eq(projects.id, projectId))
+          .limit(1);
+
+        if (!project) return;
+
+        const [newInvoice] = await tx.insert(invoices).values({
+          clientId: project.clientId,
+          projectId,
+          year,
+          month,
+          status: 'draft',
+          clientName: project.clientName,
+          clientCnpj: project.clientCnpj,
+          createdBy: triggeredBy,
+        }).returning();
+
+        targetInvoiceId = newInvoice.id;
       }
     }
 
