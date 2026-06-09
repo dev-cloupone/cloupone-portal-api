@@ -46,7 +46,7 @@ function buildItemDescription(
   if (categoryName) parts.push(categoryName);
   let desc = parts.join(' - ') || 'Despesa';
   if (isKmCategory && kmQuantity) {
-    desc += ` (${kmQuantity} km)`;
+    desc += ` (${parseFloat(kmQuantity).toString()} km)`;
   }
   return desc;
 }
@@ -402,8 +402,20 @@ export async function getById(invoiceId: string, requestUserId: string, requestU
     throw new AppError(MSG.ACCESS_DENIED, 403);
   }
 
-  const items = await db.select()
+  const items = await db.select({
+    id: expenseInvoiceItems.id,
+    expenseInvoiceId: expenseInvoiceItems.expenseInvoiceId,
+    expenseId: expenseInvoiceItems.expenseId,
+    description: expenseInvoiceItems.description,
+    originalAmount: expenseInvoiceItems.originalAmount,
+    appliedAmount: expenseInvoiceItems.appliedAmount,
+    createdAt: expenseInvoiceItems.createdAt,
+    categoryName: projectExpenseCategories.name,
+    categoryMaxAmount: projectExpenseCategories.maxAmount,
+  })
     .from(expenseInvoiceItems)
+    .leftJoin(expenses, eq(expenseInvoiceItems.expenseId, expenses.id))
+    .leftJoin(projectExpenseCategories, eq(expenses.expenseCategoryId, projectExpenseCategories.id))
     .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId));
 
   return { ...invoice, items };
