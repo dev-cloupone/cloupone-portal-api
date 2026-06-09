@@ -345,7 +345,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
       body: [[
         {
           columns: [
-            { image: logoDataUri, width: 120 } as unknown as Content,
+            { image: logoDataUri, fit: [150, 40] } as unknown as Content,
             {
               stack: [
                 { text: company.companyName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
@@ -403,26 +403,25 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
               },
               {
                 table: {
-                  widths: [55, 'auto'],
+                  widths: [70, 80],
                   body: [
                     [
-                      { text: 'EMISSÃO', bold: true, fontSize: 8, color: '#333' },
-                      { text: issuedAtFormatted, fontSize: 9 },
+                      { text: 'EMISSÃO', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                      { text: 'VALOR', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
                     ],
                     [
-                      { text: 'VALOR', bold: true, fontSize: 8, color: '#333' },
-                      { text: formatCurrency(Number(invoice.totalAmount)), fontSize: 9, bold: true },
+                      { text: issuedAtFormatted, fontSize: 9, alignment: 'center' },
+                      { text: formatCurrency(Number(invoice.totalAmount)), fontSize: 9, bold: true, alignment: 'center' },
                     ],
                   ],
                 },
                 layout: {
-                  hLineWidth: () => 0.3,
-                  vLineWidth: () => 0.3,
-                  hLineColor: () => '#ccc',
-                  vLineColor: () => '#ccc',
+                  hLineWidth: () => 0.5,
+                  vLineWidth: () => 0.5,
+                  hLineColor: () => '#000',
+                  vLineColor: () => '#000',
                 },
-                width: 'auto',
-                alignment: 'right' as const,
+                width: 'auto' as const,
               },
             ],
             margin: [5, 5, 5, 5] as [number, number, number, number],
