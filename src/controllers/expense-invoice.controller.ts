@@ -1,9 +1,15 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
+import { Readable } from 'node:stream';
+import { ZipArchive } from 'archiver';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import * as invoiceService from '../services/expense-invoice.service';
 import { generateInvoiceExpensesPdf } from '../services/invoice-pdf.service';
 import { paginationSchema } from '../utils/pagination';
 import { AppError } from '../utils/app-error';
+import { getS3Client, isR2Configured } from '../config/s3';
+import { env } from '../config/env';
+import { logger } from '../utils/logger';
 
 const idSchema = z.string().uuid();
 
@@ -144,6 +150,100 @@ const removeItem: RequestHandler = async (req, res, next) => {
   }
 };
 
+const revertToDraft: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await invoiceService.revertToDraft(id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const revertToIssued: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await invoiceService.revertToIssued(id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const sanitizeFilename = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
+const formatDateBr = (d: string) => d.split('-').reverse().join('-');
+
+const getReceiptsZip: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const { invoice, files: receiptFiles } = await invoiceService.getReceiptFiles(id);
+
+    if (!isR2Configured()) {
+      throw new AppError('Storage não configurado.', 500);
+    }
+
+    const zipName = `${sanitizeFilename(invoice.projectName)}_${formatDateBr(invoice.periodStart)}-a-${formatDateBr(invoice.periodEnd)}_comprovantes.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+    const archive = new ZipArchive();
+    archive.pipe(res);
+
+    archive.on('error', (err: Error) => {
+      logger.error({ err, invoiceId: id }, 'Error creating receipts ZIP');
+      if (!res.headersSent) {
+        next(new AppError('Erro ao gerar arquivo ZIP.', 500));
+      }
+    });
+
+    const s3 = getS3Client()!;
+    const usedNames = new Set<string>();
+    let addedCount = 0;
+
+    for (const file of receiptFiles) {
+      const ext = file.originalName?.includes('.')
+        ? '.' + file.originalName.split('.').pop()
+        : '';
+      const baseName = sanitizeFilename(file.itemDescription || 'comprovante');
+      let fileName = baseName + ext;
+
+      let counter = 1;
+      while (usedNames.has(fileName)) {
+        fileName = `${baseName}_${counter}${ext}`;
+        counter++;
+      }
+      usedNames.add(fileName);
+
+      try {
+        const command = new GetObjectCommand({
+          Bucket: env.R2_BUCKET_NAME!,
+          Key: file.storageKey,
+        });
+        const response = await s3.send(command);
+        if (response.Body) {
+          const stream = response.Body.transformToWebStream();
+          archive.append(Readable.fromWeb(stream as any), { name: fileName });
+          addedCount++;
+        }
+      } catch (err) {
+        logger.warn({ err, fileId: file.fileId, storageKey: file.storageKey }, 'Failed to fetch receipt file from R2, skipping');
+      }
+    }
+
+    if (addedCount === 0) {
+      archive.abort();
+      throw new AppError('Não foi possível recuperar nenhum comprovante do storage.', 500);
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    if (!res.headersSent) {
+      next(err);
+    }
+  }
+};
+
 export const expenseInvoiceController = {
   list,
   listMy,
@@ -156,4 +256,7 @@ export const expenseInvoiceController = {
   deleteInvoice,
   getPdf,
   removeItem,
+  revertToDraft,
+  revertToIssued,
+  getReceiptsZip,
 };

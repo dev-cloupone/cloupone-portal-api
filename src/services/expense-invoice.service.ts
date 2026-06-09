@@ -9,6 +9,7 @@ import {
   projects,
   clients,
   users,
+  files,
 } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import { getNextInvoiceNumber } from '../utils/invoice-utils';
@@ -23,10 +24,15 @@ const MSG = {
   NOT_ISSUED: 'Apenas faturas emitidas podem ser marcadas como pagas.',
   ALREADY_CANCELLED: 'Esta fatura já está cancelada.',
   NOT_DRAFT_DELETE: 'Apenas faturas em rascunho podem ser excluídas.',
+  NOT_ISSUED_REVERT: 'Apenas faturas emitidas podem ser revertidas para rascunho.',
+  NOT_PAID_REVERT: 'Apenas faturas pagas podem ser revertidas para emitida.',
+  DRAFT_EXISTS_REVERT: 'Já existe um rascunho para este projeto/período. Exclua ou emita o rascunho existente antes de reverter.',
   ACCESS_DENIED: 'Você não tem acesso a esta fatura.',
   NO_EXPENSES: 'Nenhuma despesa aprovada encontrada para este período.',
+  NO_RECEIPTS: 'Nenhum comprovante encontrado para os itens desta fatura.',
   PERIOD_NOT_FOUND: 'Período não encontrado.',
   ITEM_NOT_FOUND: 'Item não encontrado nesta fatura.',
+  NOT_ISSUED_RECEIPTS: 'Fatura ainda não foi emitida.',
 } as const;
 
 function buildItemDescription(
@@ -663,4 +669,105 @@ export async function removeItem(invoiceId: string, itemId: string): Promise<{ r
 
     return { removed: true, invoiceDeleted: false };
   });
+}
+
+// --- Revert status functions ---
+
+export async function revertToDraft(invoiceId: string) {
+  return await db.transaction(async (tx) => {
+    const [invoice] = await tx.select()
+      .from(expenseInvoices)
+      .where(eq(expenseInvoices.id, invoiceId))
+      .limit(1);
+
+    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'issued') throw new AppError(MSG.NOT_ISSUED_REVERT, 400);
+
+    // Check if a draft already exists for same project/period
+    const [existingDraft] = await tx.select({ id: expenseInvoices.id })
+      .from(expenseInvoices)
+      .where(and(
+        eq(expenseInvoices.projectId, invoice.projectId),
+        eq(expenseInvoices.periodId, invoice.periodId),
+        eq(expenseInvoices.status, 'draft'),
+      ))
+      .limit(1);
+
+    if (existingDraft) throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+
+    try {
+      const [updated] = await tx.update(expenseInvoices).set({
+        status: 'draft',
+        invoiceNumber: null,
+        issuedAt: null,
+        issuedBy: null,
+        updatedAt: new Date(),
+      }).where(eq(expenseInvoices.id, invoiceId)).returning();
+
+      return updated;
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+      }
+      throw err;
+    }
+  });
+}
+
+export async function revertToIssued(invoiceId: string) {
+  return await db.transaction(async (tx) => {
+    const [invoice] = await tx.select()
+      .from(expenseInvoices)
+      .where(eq(expenseInvoices.id, invoiceId))
+      .limit(1);
+
+    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'paid') throw new AppError(MSG.NOT_PAID_REVERT, 400);
+
+    const [updated] = await tx.update(expenseInvoices).set({
+      status: 'issued',
+      paidAt: null,
+      paidBy: null,
+      updatedAt: new Date(),
+    }).where(eq(expenseInvoices.id, invoiceId)).returning();
+
+    return updated;
+  });
+}
+
+// --- Receipt files for ZIP ---
+
+export async function getReceiptFiles(invoiceId: string) {
+  const [invoice] = await db.select({
+    id: expenseInvoices.id,
+    status: expenseInvoices.status,
+    projectName: projects.name,
+    periodStart: expenseInvoices.periodStart,
+    periodEnd: expenseInvoices.periodEnd,
+  })
+    .from(expenseInvoices)
+    .innerJoin(projects, eq(expenseInvoices.projectId, projects.id))
+    .where(eq(expenseInvoices.id, invoiceId))
+    .limit(1);
+
+  if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+  if (invoice.status === 'draft') throw new AppError(MSG.NOT_ISSUED_RECEIPTS, 400);
+
+  const itemsWithFiles = await db.select({
+    itemDescription: expenseInvoiceItems.description,
+    fileId: files.id,
+    storageKey: files.storageKey,
+    originalName: files.originalName,
+    mimeType: files.mimeType,
+  })
+    .from(expenseInvoiceItems)
+    .innerJoin(expenses, eq(expenseInvoiceItems.expenseId, expenses.id))
+    .innerJoin(files, eq(expenses.receiptFileId, files.id))
+    .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId));
+
+  if (itemsWithFiles.length === 0) {
+    throw new AppError(MSG.NO_RECEIPTS, 404);
+  }
+
+  return { invoice, files: itemsWithFiles };
 }

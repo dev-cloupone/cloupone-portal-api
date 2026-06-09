@@ -25,6 +25,7 @@
     "@aws-sdk/client-s3": "^3.990.0",
     "@aws-sdk/lib-storage": "^3.990.0",
     "@aws-sdk/s3-request-presigner": "^3.990.0",
+    "archiver": "^8.0.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -44,6 +45,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
