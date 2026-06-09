@@ -126,11 +126,12 @@ const deleteInvoice: RequestHandler = async (req, res, next) => {
 const getPdf: RequestHandler = async (req, res, next) => {
   try {
     const id = idSchema.parse(req.params.id);
+    const bankAccountId = z.string().uuid().parse(req.query.bankAccountId);
     const invoice = await invoiceService.getById(id, req.userId!, req.userRole!, req.userClientId);
     if (!invoice.invoiceNumber) {
       throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
     }
-    const buffer = await generateInvoiceExpensesPdf(id);
+    const buffer = await generateInvoiceExpensesPdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=fatura-${invoice.invoiceNumber}.pdf`);
     res.send(buffer);
