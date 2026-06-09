@@ -345,7 +345,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
       body: [[
         {
           columns: [
-            { image: logoDataUri, fit: [150, 40] } as unknown as Content,
+            { image: logoDataUri, fit: [180, 55] } as unknown as Content,
             {
               stack: [
                 { text: company.companyName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
