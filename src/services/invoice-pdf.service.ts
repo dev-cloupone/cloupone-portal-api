@@ -110,7 +110,7 @@ async function pdfToBuffer(docDefinition: TDocumentDefinitions): Promise<Buffer>
   });
 }
 
-export async function generateInvoiceHoursPdf(invoiceId: string): Promise<Buffer> {
+export async function generateInvoiceHoursPdf(invoiceId: string, bankAccountId: string): Promise<Buffer> {
   // Fetch invoice with lines
   const [invoice] = await db.select()
     .from(invoices)
@@ -128,13 +128,30 @@ export async function generateInvoiceHoursPdf(invoiceId: string): Promise<Buffer
     .where(eq(projects.id, invoice.projectId))
     .limit(1);
 
-  const { company, bankAccount } = await getCompanyAndBank();
+  // Fetch company info
+  const company = await db.query.companyInfo.findFirst();
+  if (!company) {
+    throw new AppError('Dados da empresa não configurados. Acesse Configurações > Dados da Empresa.', 400);
+  }
+
+  // Fetch specific bank account
+  const bankAccount = await db.query.bankAccounts.findFirst({
+    where: and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.isActive, true)),
+  });
+  if (!bankAccount) {
+    throw new AppError('Conta bancária não encontrada ou inativa.', 400);
+  }
 
   const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
   const logoSvg = fs.readFileSync(logoSvgPath, 'utf-8');
 
   const now = new Date();
   const generatedAt = `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+
+  // Format issuedAt date
+  const issuedAtFormatted = invoice.issuedAt
+    ? new Date(invoice.issuedAt).toLocaleDateString('pt-BR')
+    : now.toLocaleDateString('pt-BR');
 
   // Separate lines by type
   const hoursLines = lines.filter(l => l.lineType === 'hours');
@@ -153,18 +170,45 @@ export async function generateInvoiceHoursPdf(invoiceId: string): Promise<Buffer
       alignment: 'center',
       margin: [0, 0, 0, 10] as [number, number, number, number],
     },
-    // Client info
+    // Client info (2 columns: left = client data, right = emissao + valor)
     {
       table: {
         widths: ['*'],
         body: [[
           {
-            stack: [
-              { text: 'CLIENTE', bold: true, fontSize: 9, color: '#333', margin: [0, 0, 0, 4] as [number, number, number, number] },
-              { text: invoice.clientName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
-              ...(invoice.clientCnpj ? [{ text: `CNPJ: ${invoice.clientCnpj}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] }] : []),
-              { text: `Projeto: ${project?.name ?? '-'}`, fontSize: 9, margin: [0, 0, 0, 2] as [number, number, number, number] },
-              { text: `Período: ${MONTH_NAMES[invoice.month - 1]}/${invoice.year}`, fontSize: 9 },
+            columns: [
+              {
+                stack: [
+                  { text: 'CLIENTE', bold: true, fontSize: 9, color: '#333', margin: [0, 0, 0, 4] as [number, number, number, number] },
+                  { text: invoice.clientName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  ...(invoice.clientCnpj ? [{ text: `CNPJ: ${invoice.clientCnpj}`, fontSize: 8, color: '#555', margin: [0, 0, 0, 2] as [number, number, number, number] }] : []),
+                  { text: `Projeto: ${project?.name ?? '-'}`, fontSize: 9, margin: [0, 0, 0, 2] as [number, number, number, number] },
+                  { text: `Período: ${MONTH_NAMES[invoice.month - 1]}/${invoice.year}`, fontSize: 9 },
+                ],
+                width: '*',
+              },
+              {
+                table: {
+                  widths: [70, 80],
+                  body: [
+                    [
+                      { text: 'EMISSÃO', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                      { text: 'VALOR', bold: true, fontSize: 8, fillColor: '#f0f0f0', alignment: 'center' },
+                    ],
+                    [
+                      { text: issuedAtFormatted, fontSize: 9, alignment: 'center' },
+                      { text: formatCurrency(Number(invoice.totalAmount)), fontSize: 9, bold: true, alignment: 'center' },
+                    ],
+                  ],
+                },
+                layout: {
+                  hLineWidth: () => 0.5,
+                  vLineWidth: () => 0.5,
+                  hLineColor: () => '#000',
+                  vLineColor: () => '#000',
+                },
+                width: 'auto' as const,
+              },
             ],
             margin: [5, 5, 5, 5] as [number, number, number, number],
           },
@@ -187,8 +231,8 @@ export async function generateInvoiceHoursPdf(invoiceId: string): Promise<Buffer
     const tableBody: TableCell[][] = [
       [
         { text: 'Consultor', style: 'tableHeader' },
-        { text: 'Horas', style: 'tableHeader', alignment: 'right' },
-        { text: 'Rate', style: 'tableHeader', alignment: 'right' },
+        { text: 'Qt. Horas', style: 'tableHeader', alignment: 'right' },
+        { text: 'Preço Unit.', style: 'tableHeader', alignment: 'right' },
         { text: 'Total', style: 'tableHeader', alignment: 'right' },
       ],
       ...hoursLines.map(l => [
@@ -264,6 +308,18 @@ export async function generateInvoiceHoursPdf(invoiceId: string): Promise<Buffer
       margin: [0, 0, 0, 15] as [number, number, number, number],
     },
   );
+
+  // Notes
+  if (invoice.notes?.trim()) {
+    content.push(
+      {
+        canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: '#ccc' }],
+        margin: [0, 5, 0, 8] as [number, number, number, number],
+      },
+      { text: 'Observações:', bold: true, fontSize: 9, margin: [0, 0, 0, 3] as [number, number, number, number] },
+      { text: invoice.notes, fontSize: 8, color: '#555', margin: [0, 0, 0, 10] as [number, number, number, number] },
+    );
+  }
 
   // Bank info
   content.push(...buildBankInfo(bankAccount));
@@ -487,6 +543,18 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
       margin: [0, 0, 0, 15] as [number, number, number, number],
     },
   );
+
+  // Notes
+  if (invoice.notes?.trim()) {
+    content.push(
+      {
+        canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: '#ccc' }],
+        margin: [0, 5, 0, 8] as [number, number, number, number],
+      },
+      { text: 'Observações:', bold: true, fontSize: 9, margin: [0, 0, 0, 3] as [number, number, number, number] },
+      { text: invoice.notes, fontSize: 8, color: '#555', margin: [0, 0, 0, 10] as [number, number, number, number] },
+    );
+  }
 
   // Km legend (conditional)
   const hasKmExpenses = await db.select({ id: expenses.id })

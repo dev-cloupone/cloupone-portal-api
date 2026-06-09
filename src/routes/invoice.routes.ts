@@ -15,6 +15,8 @@ router.patch('/:id', auth, authorize('super_admin', 'administrative'), authentic
 router.post('/:id/issue', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.issue);
 router.post('/:id/pay', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.pay);
 router.post('/:id/cancel', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.cancel);
+router.post('/:id/revert-to-draft', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.revertToDraft);
+router.post('/:id/revert-to-issued', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.revertToIssued);
 router.delete('/:id', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.deleteInvoice);
 router.get('/:id/pdf', auth, authorize('super_admin', 'administrative', 'client'), authenticatedRateLimit, invoiceController.getPdf);
 router.post('/:id/lines', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.addCustomLine);

@@ -128,11 +128,12 @@ const deleteInvoice: RequestHandler = async (req, res, next) => {
 const getPdf: RequestHandler = async (req, res, next) => {
   try {
     const id = idSchema.parse(req.params.id);
+    const bankAccountId = z.string().uuid().parse(req.query.bankAccountId);
     const invoice = await invoiceService.getById(id, req.userId!, req.userRole!, req.userClientId);
     if (!invoice.invoiceNumber) {
       throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
     }
-    const buffer = await generateInvoiceHoursPdf(id);
+    const buffer = await generateInvoiceHoursPdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=fatura-${invoice.invoiceNumber}.pdf`);
     res.send(buffer);
@@ -163,6 +164,26 @@ const removeCustomLine: RequestHandler = async (req, res, next) => {
   }
 };
 
+const revertToDraft: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await invoiceService.revertToDraft(id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const revertToIssued: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await invoiceService.revertToIssued(id);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const pendingApprovals: RequestHandler = async (req, res, next) => {
   try {
     const { year, month } = z.object({
@@ -188,4 +209,6 @@ export const invoiceController = {
   addCustomLine,
   removeCustomLine,
   pendingApprovals,
+  revertToDraft,
+  revertToIssued,
 };

@@ -24,6 +24,9 @@ const MSG = {
   NOT_ISSUED: 'Apenas faturas emitidas podem ser marcadas como pagas.',
   ALREADY_CANCELLED: 'Esta fatura já está cancelada.',
   NOT_DRAFT_DELETE: 'Apenas faturas em rascunho podem ser excluídas.',
+  NOT_ISSUED_REVERT: 'Apenas faturas emitidas podem ser revertidas para rascunho.',
+  NOT_PAID_REVERT: 'Apenas faturas pagas podem ser revertidas para emitida.',
+  DRAFT_EXISTS_REVERT: 'Já existe um rascunho para este projeto/mês. Exclua-o antes de reverter.',
   ACCESS_DENIED: 'Você não tem acesso a esta fatura.',
   NO_ENTRIES: 'Nenhum lançamento de horas encontrado para este projeto/mês.',
   LINE_NOT_FOUND: 'Linha não encontrada.',
@@ -536,6 +539,71 @@ export async function remove(invoiceId: string) {
     if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_DELETE, 400);
 
     await tx.delete(invoices).where(eq(invoices.id, invoiceId));
+  });
+}
+
+// --- Revert status functions ---
+
+export async function revertToDraft(invoiceId: string) {
+  return await db.transaction(async (tx) => {
+    const [invoice] = await tx.select()
+      .from(invoices)
+      .where(eq(invoices.id, invoiceId))
+      .limit(1);
+
+    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'issued') throw new AppError(MSG.NOT_ISSUED_REVERT, 400);
+
+    // Check if a draft already exists for same project/year/month
+    const [existingDraft] = await tx.select({ id: invoices.id })
+      .from(invoices)
+      .where(and(
+        eq(invoices.projectId, invoice.projectId),
+        eq(invoices.year, invoice.year),
+        eq(invoices.month, invoice.month),
+        eq(invoices.status, 'draft'),
+      ))
+      .limit(1);
+
+    if (existingDraft) throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+
+    try {
+      const [updated] = await tx.update(invoices).set({
+        status: 'draft',
+        invoiceNumber: null,
+        issuedAt: null,
+        issuedBy: null,
+        updatedAt: new Date(),
+      }).where(eq(invoices.id, invoiceId)).returning();
+
+      return updated;
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+      }
+      throw err;
+    }
+  });
+}
+
+export async function revertToIssued(invoiceId: string) {
+  return await db.transaction(async (tx) => {
+    const [invoice] = await tx.select()
+      .from(invoices)
+      .where(eq(invoices.id, invoiceId))
+      .limit(1);
+
+    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'paid') throw new AppError(MSG.NOT_PAID_REVERT, 400);
+
+    const [updated] = await tx.update(invoices).set({
+      status: 'issued',
+      paidAt: null,
+      paidBy: null,
+      updatedAt: new Date(),
+    }).where(eq(invoices.id, invoiceId)).returning();
+
+    return updated;
   });
 }
 
