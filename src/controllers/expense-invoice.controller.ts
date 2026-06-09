@@ -170,7 +170,7 @@ const revertToIssued: RequestHandler = async (req, res, next) => {
   }
 };
 
-const sanitizeFilename = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
+const sanitizeFilename = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-{2,}/g, '-');
 const formatDateBr = (d: string) => d.split('-').reverse().join('-');
 
 const getReceiptsZip: RequestHandler = async (req, res, next) => {
