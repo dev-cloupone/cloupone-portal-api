@@ -20,8 +20,14 @@ vi.mock('../../db/schema', () => ({
 
 import { createChain } from '../../__test-utils__/drizzle-chain'
 
+vi.mock('../../utils/logger', () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+
 vi.mock('../consultant-payment.service', () => ({
   regenerateDraft: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('../invoice.service', () => ({
+  regenerateInvoiceDraftsForConsultant: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('../../db', () => ({

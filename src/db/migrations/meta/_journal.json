@@ -211,6 +211,34 @@
       "when": 1780387200000,
       "tag": "0029_add_expense_payment_user_draft_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1780473600000,
+      "tag": "0030_add_invoicing_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1780560000000,
+      "tag": "0031_fix_invoice_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780646400000,
+      "tag": "0032_allow_multiple_active_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1780732800000,
+      "tag": "0033_add_expense_invoice_draft_unique",
+      "breakpoints": true
     }
   ]
 }

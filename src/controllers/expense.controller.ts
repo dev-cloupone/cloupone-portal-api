@@ -184,6 +184,16 @@ const unmarkReimbursement: RequestHandler = async (req, res, next) => {
   }
 };
 
+const getById: RequestHandler = async (req, res, next) => {
+  try {
+    const id = idSchema.parse(req.params.id);
+    const result = await expenseService.getExpenseById(id, req.userId!, req.userRole!);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const expenseController = {
   getMonthExpenses,
   getWeekExpenses,
@@ -197,4 +207,5 @@ export const expenseController = {
   listReimbursements,
   markAsReimbursed,
   unmarkReimbursement,
+  getById,
 };
