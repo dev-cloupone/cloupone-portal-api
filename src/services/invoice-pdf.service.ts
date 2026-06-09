@@ -325,10 +325,9 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
     throw new AppError('Conta bancária não encontrada ou inativa.', 400);
   }
 
-  // Load PNG logo
-  const logoPngPath = path.resolve(__dirname, '../assets/cloup-one-brand.png');
-  const logoPngBase64 = fs.readFileSync(logoPngPath).toString('base64');
-  const logoDataUri = `data:image/png;base64,${logoPngBase64}`;
+  // Load SVG logo (same as expense report)
+  const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
+  const logoSvg = fs.readFileSync(logoSvgPath, 'utf-8');
 
   const now = new Date();
   const generatedAt = `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
@@ -338,14 +337,14 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
     ? new Date(invoice.issuedAt).toLocaleDateString('pt-BR')
     : now.toLocaleDateString('pt-BR');
 
-  // Build header with PNG logo
+  // Build header with SVG logo
   const header: Content = {
     table: {
       widths: ['*'],
       body: [[
         {
           columns: [
-            { image: logoDataUri, fit: [180, 55] } as unknown as Content,
+            { svg: logoSvg, width: 120 } as unknown as Content,
             {
               stack: [
                 { text: company.companyName, bold: true, fontSize: 10, margin: [0, 0, 0, 2] as [number, number, number, number] },
