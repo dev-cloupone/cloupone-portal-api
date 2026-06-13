@@ -22,3 +22,4 @@ export { companyInfo } from './company-info';
 export { accountTypeEnum, bankAccounts } from './bank-accounts';
 export { invoiceStatusEnum, invoiceLineTypeEnum, invoices, invoiceLines } from './invoices';
 export { expenseInvoices, expenseInvoiceItems } from './expense-invoices';
+export { importLogs } from './import-logs';

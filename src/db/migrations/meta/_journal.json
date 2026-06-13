@@ -239,6 +239,13 @@
       "when": 1780732800000,
       "tag": "0033_add_expense_invoice_draft_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1780819200000,
+      "tag": "0034_import_logs",
+      "breakpoints": true
     }
   ]
 }
