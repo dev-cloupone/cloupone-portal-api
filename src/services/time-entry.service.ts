@@ -627,6 +627,7 @@ export async function listForView(params: ListViewParams, userId: string, userRo
     projectName: projects.name,
     subphaseId: projectSubphases.id,
     subphaseName: projectSubphases.name,
+    phaseName: projectPhases.name,
     ticketId: tickets.id,
     ticketCode: tickets.code,
     ticketTitle: tickets.title,
@@ -635,6 +636,7 @@ export async function listForView(params: ListViewParams, userId: string, userRo
     .innerJoin(users, eq(timeEntries.userId, users.id))
     .innerJoin(projects, eq(timeEntries.projectId, projects.id))
     .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
+    .leftJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
     .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
     .where(and(...conditions))
     .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));

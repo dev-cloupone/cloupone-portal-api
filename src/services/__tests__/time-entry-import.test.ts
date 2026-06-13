@@ -71,6 +71,7 @@ function createCsv(content: string): Buffer {
 const VALID_ROW = {
   Data: '02/06/2026',
   Projeto: 'Projeto A',
+  Fase: 'Fase 1',
   Subfase: 'Subfase 1',
   Ticket: 'TK-001',
   'Início': '09:00',
@@ -87,6 +88,7 @@ describe('parseFile', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].date).toBe('02/06/2026')
     expect(rows[0].project).toBe('Projeto A')
+    expect(rows[0].phase).toBe('Fase 1')
     expect(rows[0].subphase).toBe('Subfase 1')
     expect(rows[0].ticket).toBe('TK-001')
     expect(rows[0].startTime).toBe('09:00')
@@ -95,7 +97,7 @@ describe('parseFile', () => {
   })
 
   it('parses csv with semicolon separator', () => {
-    const csv = 'Data;Projeto;Subfase;Inicio;Fim\n02/06/2026;Projeto A;Subfase 1;09:00;18:00'
+    const csv = 'Data;Projeto;Fase;Subfase;Inicio;Fim\n02/06/2026;Projeto A;Fase 1;Subfase 1;09:00;18:00'
     const rows = parseFile(createCsv(csv), 'test.csv')
     expect(rows).toHaveLength(1)
     expect(rows[0].date).toBe('02/06/2026')
@@ -103,7 +105,7 @@ describe('parseFile', () => {
   })
 
   it('parses csv with comma separator', () => {
-    const csv = 'Data,Projeto,Subfase,Inicio,Fim\n02/06/2026,Projeto A,Subfase 1,09:00,18:00'
+    const csv = 'Data,Projeto,Fase,Subfase,Inicio,Fim\n02/06/2026,Projeto A,Fase 1,Subfase 1,09:00,18:00'
     const rows = parseFile(createCsv(csv), 'test.csv')
     expect(rows).toHaveLength(1)
     expect(rows[0].project).toBe('Projeto A')
@@ -130,7 +132,7 @@ describe('parseFile', () => {
 
   it('maps headers with accent (Início/Inicio, Descrição/Descricao)', () => {
     const buffer = createXlsx([{
-      Data: '02/06/2026', Projeto: 'A', Subfase: 'B',
+      Data: '02/06/2026', Projeto: 'A', Fase: 'F', Subfase: 'B',
       Inicio: '09:00', Fim: '18:00', Descricao: 'test',
     }])
     const rows = parseFile(buffer, 'test.xlsx')
@@ -169,7 +171,7 @@ describe('validateImport', () => {
   it('validates a valid row returning status valid with resolvedIds', async () => {
     setupValidRow()
     const rows = [{
-      date: '02/06/2026', project: 'Projeto A', subphase: 'Subfase 1',
+      date: '02/06/2026', project: 'Projeto A', phase: 'Fase 1', subphase: 'Subfase 1',
       ticket: 'TK-001', startTime: '09:00', endTime: '18:00', description: 'test',
     }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
@@ -182,7 +184,7 @@ describe('validateImport', () => {
 
   it('returns error for invalid date', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ allowOverlappingEntries: false }]) as never)
-    const rows = [{ date: '99/99/9999', project: 'A', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '99/99/9999', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].status).toBe('error')
@@ -192,7 +194,7 @@ describe('validateImport', () => {
   it('returns error when month is closed', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ allowOverlappingEntries: false }]) as never)
     mockIsMonthOpen.mockResolvedValue(false)
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].message).toContain('Mês aprovado')
@@ -205,7 +207,7 @@ describe('validateImport', () => {
       if (selectCall === 1) return createChain([{ allowOverlappingEntries: false }]) as never
       return createChain([]) as never // project not found
     })
-    const rows = [{ date: '02/06/2026', project: 'Inexistente', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'Inexistente', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].message).toContain('Projeto não encontrado')
@@ -219,15 +221,15 @@ describe('validateImport', () => {
       if (selectCall === 2) return createChain([{ id: 'p1' }]) as never // project
       return createChain([]) as never // subphase not found/not in_progress
     })
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
-    expect(result.rows[0].message).toContain('Subfase não encontrada')
+    expect(result.rows[0].message).toContain('Subfase')
   })
 
   it('returns error for invalid time format', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ allowOverlappingEntries: false }]) as never)
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '25:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '25:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].message).toContain('Horário inválido')
@@ -235,7 +237,7 @@ describe('validateImport', () => {
 
   it('returns error for duration <15min', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ allowOverlappingEntries: false }]) as never)
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '09:10' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '09:10' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].message).toContain('Duração mínima')
@@ -253,7 +255,7 @@ describe('validateImport', () => {
       if (selectCall === 5) return createChain([{ id: 'overlap', startTime: '08:00', endTime: '10:00' }]) as never // overlap!
       return createChain([]) as never
     })
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.errors).toBe(1)
     expect(result.rows[0].message).toContain('Sobreposição')
@@ -282,8 +284,8 @@ describe('validateImport', () => {
     })
 
     const rows = [
-      { date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '12:00' },
-      { date: '02/06/2026', project: 'A', subphase: 'B', startTime: '10:00', endTime: '14:00' },
+      { date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '12:00' },
+      { date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '10:00', endTime: '14:00' },
     ]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.valid).toBe(1)
@@ -305,7 +307,7 @@ describe('validateImport', () => {
       return createChain([]) as never
     })
 
-    const rows = [{ date: '02/06/2026', project: 'A', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.warnings).toBe(1)
     expect(result.rows[0].status).toBe('warning')

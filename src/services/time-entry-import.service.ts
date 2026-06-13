@@ -14,6 +14,7 @@ import * as monthlyTimesheetService from './monthly-timesheet.service';
 interface RawRow {
   date: string;
   project: string;
+  phase: string;
   subphase: string;
   ticket?: string;
   startTime: string;
@@ -68,6 +69,7 @@ interface ConfirmResult {
 const HEADER_MAP: Record<string, string> = {
   data: 'date',
   projeto: 'project',
+  fase: 'phase',
   subfase: 'subphase',
   ticket: 'ticket',
   inicio: 'startTime',
@@ -78,7 +80,7 @@ const HEADER_MAP: Record<string, string> = {
 };
 
 const IGNORED_HEADERS = new Set(['consultor', 'horas']);
-const REQUIRED_FIELDS = ['date', 'project', 'subphase', 'startTime', 'endTime'];
+const REQUIRED_FIELDS = ['date', 'project', 'phase', 'subphase', 'startTime', 'endTime'];
 
 function normalizeHeader(header: string): string {
   return header.trim().toLowerCase()
@@ -178,7 +180,7 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
   const mappedFields = new Set(Object.values(headerMapping));
   const missing = REQUIRED_FIELDS.filter(f => !mappedFields.has(f));
   if (missing.length > 0) {
-    throw new AppError(`Colunas obrigatórias não encontradas: ${missing.join(', ')}. Esperado: Data, Projeto, Subfase, Início, Fim.`, 400);
+    throw new AppError(`Colunas obrigatórias não encontradas: ${missing.join(', ')}. Esperado: Data, Projeto, Fase, Subfase, Início, Fim.`, 400);
   }
 
   return rawData.map(row => {
@@ -195,6 +197,7 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
     return {
       date: mapped.date || '',
       project: mapped.project || '',
+      phase: mapped.phase || '',
       subphase: mapped.subphase || '',
       ticket: mapped.ticket || undefined,
       startTime: mapped.startTime || '',
@@ -241,6 +244,7 @@ async function resolveProject(
 
 async function resolveSubphase(
   subphaseName: string,
+  phaseName: string,
   projectId: string,
   consultantId: string,
   actorRole: string,
@@ -250,6 +254,7 @@ async function resolveSubphase(
     .innerJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
     .where(and(
       eq(projectPhases.projectId, projectId),
+      ilike(projectPhases.name, phaseName),
       ilike(projectSubphases.name, subphaseName),
     ))
     .limit(2);
@@ -366,10 +371,10 @@ export async function validateImport(
     }
 
     // 6. Resolve subphase
-    const subphase = await resolveSubphase(row.subphase, project.id, consultantId, actorRole);
+    const subphase = await resolveSubphase(row.subphase, row.phase, project.id, consultantId, actorRole);
     if (!subphase) {
       errors++;
-      validatedRows.push({ row: rowNum, data: row, status: 'error', message: `Subfase não encontrada ou não está em andamento: "${row.subphase}".`, resolvedIds: null });
+      validatedRows.push({ row: rowNum, data: row, status: 'error', message: `Subfase "${row.subphase}" não encontrada na fase "${row.phase}" ou não está em andamento.`, resolvedIds: null });
       continue;
     }
 
