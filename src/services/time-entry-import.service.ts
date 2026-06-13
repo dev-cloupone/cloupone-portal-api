@@ -154,7 +154,7 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
     const text = buffer.toString('utf-8');
     const firstLine = text.split('\n')[0] || '';
     const separator = firstLine.includes(';') ? ';' : ',';
-    workbook = XLSX.read(buffer, { type: 'buffer', FS: separator, raw: true });
+    workbook = XLSX.read(buffer, { type: 'buffer', FS: separator, raw: true, codepage: 65001 });
   } else {
     workbook = XLSX.read(buffer, { type: 'buffer' });
   }
