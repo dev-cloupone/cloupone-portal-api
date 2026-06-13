@@ -126,6 +126,16 @@ function parseDateDDMMYYYY(dateStr: string): { valid: boolean; isoDate: string; 
   return { valid: true, isoDate, year, month };
 }
 
+function excelSerialToDateStr(serial: number): string {
+  // Excel serial date: days since 1900-01-01 (with the Lotus 1-2-3 leap year bug)
+  const utcDays = serial - 25569; // 25569 = days between 1900-01-01 and 1970-01-01 (Unix epoch)
+  const date = new Date(utcDays * 86400000);
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 // === PARSE ===
@@ -174,7 +184,13 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
   return rawData.map(row => {
     const mapped: Record<string, string> = {};
     for (const [originalKey, internalKey] of Object.entries(headerMapping)) {
-      mapped[internalKey] = String(row[originalKey] ?? '').trim();
+      const val = row[originalKey];
+      // Excel stores dates as serial numbers — convert to DD/MM/YYYY
+      if (internalKey === 'date' && typeof val === 'number' && val > 0) {
+        mapped[internalKey] = excelSerialToDateStr(val);
+      } else {
+        mapped[internalKey] = String(val ?? '').trim();
+      }
     }
     return {
       date: mapped.date || '',
