@@ -528,7 +528,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
   content.push({
     table: {
       headerRows: 1,
-      widths: [30, 50, '*', 70],
+      widths: [22, 42, '*', 55],
       body: tableBody,
     },
     layout: {
