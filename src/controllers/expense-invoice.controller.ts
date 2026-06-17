@@ -177,7 +177,7 @@ const formatDateBr = (d: string) => d.split('-').reverse().join('-');
 const getReceiptsZip: RequestHandler = async (req, res, next) => {
   try {
     const id = idSchema.parse(req.params.id);
-    const { invoice, files: receiptFiles } = await invoiceService.getReceiptFiles(id);
+    const { invoice, files: receiptFiles, seqMap } = await invoiceService.getReceiptFiles(id);
 
     if (!isR2Configured()) {
       throw new AppError('Storage não configurado.', 500);
@@ -203,15 +203,16 @@ const getReceiptsZip: RequestHandler = async (req, res, next) => {
     let addedCount = 0;
 
     for (const file of receiptFiles) {
+      const seq = seqMap.get(file.itemId) ?? '000';
+      const consultantPart = sanitizeFilename(file.consultantName || 'comprovante');
       const ext = file.originalName?.includes('.')
         ? '.' + file.originalName.split('.').pop()
         : '';
-      const baseName = sanitizeFilename(file.itemDescription || 'comprovante');
-      let fileName = baseName + ext;
+      let fileName = `${seq}_${consultantPart}${ext}`;
 
       let counter = 1;
       while (usedNames.has(fileName)) {
-        fileName = `${baseName}_${counter}${ext}`;
+        fileName = `${seq}_${consultantPart}_${counter}${ext}`;
         counter++;
       }
       usedNames.add(fileName);

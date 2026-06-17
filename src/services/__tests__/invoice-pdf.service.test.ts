@@ -14,7 +14,8 @@ vi.mock('../../db/schema', () => ({
   projects: { id: 'id', name: 'name' },
   companyInfo: {},
   bankAccounts: { id: 'id', isActive: 'isActive', projectId: 'projectId', isKmCategory: 'isKmCategory' },
-  expenses: { id: 'id', date: 'date', expenseCategoryId: 'expenseCategoryId', receiptFileId: 'receiptFileId' },
+  expenses: { id: 'id', date: 'date', expenseCategoryId: 'expenseCategoryId', receiptFileId: 'receiptFileId', consultantUserId: 'consultantUserId', description: 'description' },
+  users: { id: 'id', name: 'name' },
   projectExpenseCategories: { id: 'id', name: 'name', isKmCategory: 'isKmCategory', kmRate: 'kmRate', projectId: 'projectId', isActive: 'isActive' },
 }))
 

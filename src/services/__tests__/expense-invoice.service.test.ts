@@ -828,15 +828,18 @@ describe('listByClient', () => {
 describe('getReceiptFiles', () => {
   it('retorna arquivos de comprovante para issued/paid', async () => {
     const invoice = { id: 'inv1', status: 'issued', projectName: 'Proj1', periodStart: '2024-06-01', periodEnd: '2024-06-07' }
-    const filesData = [{ itemDescription: 'Viagem', fileId: 'f1', storageKey: 'key1', originalName: 'receipt.pdf', mimeType: 'application/pdf' }]
+    const allItems = [{ itemId: 'item1' }]
+    const filesData = [{ itemId: 'item1', consultantName: 'Joao', fileId: 'f1', storageKey: 'key1', originalName: 'receipt.pdf', mimeType: 'application/pdf' }]
 
     vi.mocked(db.select)
       .mockReturnValueOnce(createChain([invoice]) as never)
+      .mockReturnValueOnce(createChain(allItems) as never)
       .mockReturnValueOnce(createChain(filesData) as never)
 
     const result = await getReceiptFiles('inv1')
     expect(result.invoice).toMatchObject({ id: 'inv1' })
     expect(result.files).toHaveLength(1)
+    expect(result.seqMap.get('item1')).toBe('001')
   })
 
   it('rejeita se invoice e draft', async () => {
@@ -851,6 +854,7 @@ describe('getReceiptFiles', () => {
   it('retorna erro se sem comprovantes', async () => {
     vi.mocked(db.select)
       .mockReturnValueOnce(createChain([{ id: 'inv1', status: 'issued' }]) as never)
+      .mockReturnValueOnce(createChain([]) as never)
       .mockReturnValueOnce(createChain([]) as never)
 
     await expect(getReceiptFiles('inv1'))
