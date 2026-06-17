@@ -519,7 +519,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
       return [
         { text: String(i + 1).padStart(3, '0'), fontSize: 8 },
         { text: formatDateShort(item.expenseDate), fontSize: 8 },
-        { text: descText, fontSize: 8 },
+        { text: descText, fontSize: 8, lineHeight: 1.3 },
         { text: formatCurrency(Number(item.appliedAmount)), alignment: 'right' as const },
       ];
     }),
