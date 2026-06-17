@@ -536,8 +536,6 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
       vLineWidth: () => 0.5,
       hLineColor: () => '#000',
       vLineColor: () => '#000',
-      paddingTop: () => 4,
-      paddingBottom: () => 4,
     },
     margin: [0, 0, 0, 10] as [number, number, number, number],
   });
