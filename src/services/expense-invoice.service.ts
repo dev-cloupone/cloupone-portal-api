@@ -765,8 +765,21 @@ export async function getReceiptFiles(invoiceId: string) {
   if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
   if (invoice.status === 'draft') throw new AppError(MSG.NOT_ISSUED_RECEIPTS, 400);
 
+  // Fetch all items ordered by date to build sequential map (matching PDF order)
+  const allItems = await db.select({
+    itemId: expenseInvoiceItems.id,
+  })
+    .from(expenseInvoiceItems)
+    .innerJoin(expenses, eq(expenseInvoiceItems.expenseId, expenses.id))
+    .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId))
+    .orderBy(expenses.date);
+
+  const seqMap = new Map(allItems.map((item, i) => [item.itemId, String(i + 1).padStart(3, '0')]));
+
+  // Fetch items that have receipt files
   const itemsWithFiles = await db.select({
-    itemDescription: expenseInvoiceItems.description,
+    itemId: expenseInvoiceItems.id,
+    consultantName: users.name,
     fileId: files.id,
     storageKey: files.storageKey,
     originalName: files.originalName,
@@ -775,11 +788,12 @@ export async function getReceiptFiles(invoiceId: string) {
     .from(expenseInvoiceItems)
     .innerJoin(expenses, eq(expenseInvoiceItems.expenseId, expenses.id))
     .innerJoin(files, eq(expenses.receiptFileId, files.id))
+    .leftJoin(users, eq(expenses.consultantUserId, users.id))
     .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId));
 
   if (itemsWithFiles.length === 0) {
     throw new AppError(MSG.NO_RECEIPTS, 404);
   }
 
-  return { invoice, files: itemsWithFiles };
+  return { invoice, files: itemsWithFiles, seqMap };
 }

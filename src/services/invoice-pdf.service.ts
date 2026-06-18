@@ -7,7 +7,7 @@ const PdfPrinter = require('pdfmake/js/Printer').default;
 const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
-import { invoices, invoiceLines, expenseInvoices, expenseInvoiceItems, projects, companyInfo, bankAccounts, expenses, projectExpenseCategories } from '../db/schema';
+import { invoices, invoiceLines, expenseInvoices, expenseInvoiceItems, projects, companyInfo, bankAccounts, expenses, projectExpenseCategories, users } from '../db/schema';
 import { AppError } from '../utils/app-error';
 
 const fonts = {
@@ -357,10 +357,13 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
     description: expenseInvoiceItems.description,
     appliedAmount: expenseInvoiceItems.appliedAmount,
     expenseDate: expenses.date,
+    expenseDescription: expenses.description,
   })
     .from(expenseInvoiceItems)
     .innerJoin(expenses, eq(expenseInvoiceItems.expenseId, expenses.id))
-    .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId));
+    .leftJoin(users, eq(expenses.consultantUserId, users.id))
+    .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId))
+    .orderBy(expenses.date);
 
   const [project] = await db.select({ name: projects.name })
     .from(projects)
@@ -503,21 +506,29 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
 
   const tableBody: TableCell[][] = [
     [
+      { text: 'Item', style: 'tableHeader' },
       { text: 'Data', style: 'tableHeader' },
       { text: 'Descrição', style: 'tableHeader' },
       { text: 'Valor', style: 'tableHeader', alignment: 'right' },
     ],
-    ...items.map(item => [
-      { text: formatDateShort(item.expenseDate), fontSize: 8 },
-      item.description ?? '-',
-      { text: formatCurrency(Number(item.appliedAmount)), alignment: 'right' as const },
-    ]),
+    ...items.map((item, i) => {
+      let descText = item.description ?? '-';
+      if (item.expenseDescription?.trim()) {
+        descText += ` - ${item.expenseDescription.trim()}`;
+      }
+      return [
+        { text: String(i + 1).padStart(3, '0'), fontSize: 8 },
+        { text: formatDateShort(item.expenseDate), fontSize: 8 },
+        { text: descText, fontSize: 8, lineHeight: 1.3 },
+        { text: formatCurrency(Number(item.appliedAmount)), alignment: 'right' as const },
+      ];
+    }),
   ];
 
   content.push({
     table: {
       headerRows: 1,
-      widths: [65, '*', 100],
+      widths: [22, 42, '*', 55],
       body: tableBody,
     },
     layout: {
