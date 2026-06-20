@@ -32,13 +32,16 @@ const updateProjectSchema = z.object({
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).optional(),
   status: z.enum(['active', 'paused', 'finished']).optional(),
   billingType: z.enum(['hourly', 'fixed_price']).optional(),
-  billingRate: z.number().positive(V.greaterThanZero).optional(),
+  billingRate: z.number().nonnegative(V.greaterThanZero).optional(),
   fixedPriceTotal: z.number().positive(V.greaterThanZero).nullable().optional(),
   budgetHours: z.number().int(V.integer).positive(V.greaterThanZero).optional(),
   budgetType: z.enum(['monthly', 'total']).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-});
+}).refine(
+  (data) => data.billingType !== 'hourly' || data.billingRate === undefined || data.billingRate > 0,
+  { message: 'Valor/hora é obrigatório para projetos por hora', path: ['billingRate'] }
+);
 
 const addAllocationSchema = z.object({
   userId: z.string().uuid(V.uuidInvalid('Usuário')),
