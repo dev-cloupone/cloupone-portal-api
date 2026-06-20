@@ -34,6 +34,7 @@ import { phaseRoutes } from './routes/phase.routes';
 import { consultantPaymentRoutes } from './routes/consultant-payment.routes';
 import { expensePaymentRoutes } from './routes/expense-payment.routes';
 import { invoiceRoutes } from './routes/invoice.routes';
+import { installmentRoutes } from './routes/installment.routes';
 import { expenseInvoiceRoutes } from './routes/expense-invoice.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
@@ -110,6 +111,7 @@ app.use('/api/expense-templates', expenseTemplateRoutes);
 app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 app.use('/api/payments/hours', consultantPaymentRoutes);
 app.use('/api/payments/expenses', expensePaymentRoutes);
+app.use('/api/projects/:projectId/installments', installmentRoutes);
 app.use('/api/invoices/hours', invoiceRoutes);
 app.use('/api/invoices/expenses', expenseInvoiceRoutes);
 

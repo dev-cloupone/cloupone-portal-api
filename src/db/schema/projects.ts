@@ -2,6 +2,7 @@ import { pgTable, uuid, varchar, text, decimal, integer, boolean, timestamp, pgE
 import { clients } from './clients';
 
 export const projectStatusEnum = pgEnum('project_status', ['active', 'paused', 'finished']);
+export const billingTypeEnum = pgEnum('billing_type', ['hourly', 'fixed_price']);
 
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -10,6 +11,8 @@ export const projects = pgTable('projects', {
   clientId: uuid('client_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
   status: projectStatusEnum('status').notNull().default('active'),
   billingRate: decimal('billing_rate', { precision: 10, scale: 2 }).notNull(),
+  billingType: billingTypeEnum('billing_type').notNull().default('hourly'),
+  fixedPriceTotal: decimal('fixed_price_total', { precision: 12, scale: 2 }),
   budgetHours: integer('budget_hours'),
   budgetType: varchar('budget_type', { length: 20 }).default('monthly'),
   startDate: timestamp('start_date'),

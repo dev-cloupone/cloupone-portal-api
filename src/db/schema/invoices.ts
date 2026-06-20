@@ -2,9 +2,11 @@ import { pgTable, uuid, integer, varchar, decimal, text, timestamp, pgEnum, inde
 import { users } from './users';
 import { clients } from './clients';
 import { projects } from './projects';
+import { projectInstallments } from './project-installments';
 
 export const invoiceStatusEnum = pgEnum('invoice_status', ['draft', 'issued', 'paid', 'cancelled']);
-export const invoiceLineTypeEnum = pgEnum('invoice_line_type', ['hours', 'custom']);
+export const invoiceLineTypeEnum = pgEnum('invoice_line_type', ['hours', 'custom', 'installment']);
+export const invoiceTypeEnum = pgEnum('invoice_type', ['hourly', 'fixed_price']);
 
 export const invoices = pgTable('invoices', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -14,6 +16,7 @@ export const invoices = pgTable('invoices', {
   year: integer('year').notNull(),
   month: integer('month').notNull(),
   status: invoiceStatusEnum('status').notNull().default('draft'),
+  invoiceType: invoiceTypeEnum('invoice_type').notNull().default('hourly'),
   clientName: varchar('client_name', { length: 255 }).notNull(),
   clientCnpj: varchar('client_cnpj', { length: 18 }),
   totalHours: decimal('total_hours', { precision: 8, scale: 2 }).notNull().default('0'),
@@ -32,6 +35,7 @@ export const invoices = pgTable('invoices', {
   index('invoices_client_idx').on(table.clientId),
   index('invoices_project_idx').on(table.projectId),
   index('invoices_status_idx').on(table.status),
+  index('invoices_invoice_type_idx').on(table.invoiceType),
 ]);
 
 export const invoiceLines = pgTable('invoice_lines', {
@@ -46,7 +50,9 @@ export const invoiceLines = pgTable('invoice_lines', {
   originalRate: decimal('original_rate', { precision: 10, scale: 2 }),
   appliedRate: decimal('applied_rate', { precision: 10, scale: 2 }).notNull(),
   subtotal: decimal('subtotal', { precision: 12, scale: 2 }).notNull(),
+  installmentId: uuid('installment_id').references(() => projectInstallments.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
   index('invoice_lines_invoice_idx').on(table.invoiceId),
+  index('invoice_lines_installment_idx').on(table.installmentId),
 ]);
