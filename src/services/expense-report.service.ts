@@ -26,8 +26,10 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('pt-BR');
 }
 
+import { formatBRL } from '../utils/format-currency';
+
 function formatCurrency(value: number): string {
-  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `R$ ${formatBRL(value)}`;
 }
 
 function formatPeriod(weekStart: string, weekEnd: string): string {

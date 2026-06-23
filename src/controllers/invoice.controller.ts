@@ -224,6 +224,19 @@ const pendingInstallments: RequestHandler = async (_req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const pendingInstallmentsDetailed: RequestHandler = async (req, res, next) => {
+  try {
+    const { year, month } = z.object({
+      year: z.coerce.number().int().min(2020).max(2100),
+      month: z.coerce.number().int().min(1).max(12),
+    }).parse(req.query);
+    const result = await installmentService.getPendingInstallmentsDetailed(year, month);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const invoiceController = {
   list,
   listMy,
@@ -240,6 +253,7 @@ export const invoiceController = {
   removeCustomLine,
   pendingApprovals,
   pendingInstallments,
+  pendingInstallmentsDetailed,
   revertToDraft,
   revertToIssued,
 };

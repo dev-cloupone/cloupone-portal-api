@@ -5,6 +5,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
   and: vi.fn((...args: unknown[]) => args),
   ne: vi.fn(),
+  asc: vi.fn(),
   sql: Object.assign(vi.fn(), { join: vi.fn() }),
   count: vi.fn(),
   desc: vi.fn(),
@@ -86,6 +87,7 @@ import {
   getById, list, listByClient, getPendingApprovals,
   generateFromInstallments,
 } from '../invoice.service'
+import { getPendingInstallmentsDetailed } from '../installment.service'
 import { db } from '../../db'
 
 beforeEach(() => vi.clearAllMocks())
@@ -913,7 +915,7 @@ describe('generateFromInstallments', () => {
   })
 
   it('gera fatura a partir de parcelas pendentes', async () => {
-    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: '12345678000100', billingType: 'fixed_price' }
+    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: '12345678000100', billingType: 'fixed_price', fixedPriceTotal: '50000.00' }
     const installments = [
       { id: 'inst1', projectId: 'p1', installmentNumber: 1, description: 'Parcela 1', amount: '5000.00', status: 'pending' },
       { id: 'inst2', projectId: 'p1', installmentNumber: 2, description: 'Parcela 2', amount: '5000.00', status: 'pending' },
@@ -927,6 +929,7 @@ describe('generateFromInstallments', () => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never       // project+client
       if (selectCall === 2) return createChain(installments) as never    // installments
+      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
     vi.mocked(db.insert)
@@ -990,5 +993,89 @@ describe('generateFromInstallments', () => {
 
     await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
       .rejects.toThrow('não encontrado')
+  })
+
+  it('gera descricao automatica no formato completo', async () => {
+    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: '12345678000100', billingType: 'fixed_price', fixedPriceTotal: '50000.00' }
+    const installments = [
+      { id: 'inst1', projectId: 'p1', installmentNumber: 3, description: 'Parcela 3', amount: '5000.00', status: 'pending' },
+    ]
+    const invoice = { id: 'inv1', status: 'draft', invoiceType: 'fixed_price' }
+    const line = { id: 'line1' }
+    const updatedInvoice = { ...invoice, totalHours: '0', totalAmount: '5000.00' }
+
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([project]) as never       // project+client
+      if (selectCall === 2) return createChain(installments) as never    // installments
+      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
+      return createChain([]) as never
+    })
+
+    const lineChain = createChain([line])
+    vi.mocked(db.insert)
+      .mockReturnValueOnce(createChain([invoice]) as never)   // invoice insert
+      .mockReturnValueOnce(lineChain as never)                // line insert
+    vi.mocked(db.update).mockReturnValue(createChain([updatedInvoice]) as never)
+
+    await generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1')
+
+    // Verify the line insert captured the correct description format
+    const valuesCall = lineChain.values.mock.calls[0][0]
+    expect(valuesCall.description).toContain('Parcela 3/10')
+    expect(valuesCall.description).toContain('Ref. junho/2024')
+    expect(valuesCall.description).toContain('Contrato: R$')
+    expect(valuesCall.description).toContain('50.000,00')
+  })
+})
+
+// ─── getPendingInstallmentsDetailed ─────────────────────────────────────────
+
+describe('getPendingInstallmentsDetailed', () => {
+  it('retorna parcelas agrupadas por projeto', async () => {
+    const rows = [
+      { id: 'inst1', installmentNumber: 1, description: 'Parcela 1', amount: '5000.00', dueDate: '2024-06-15', projectId: 'p1', projectName: 'Projeto Alpha', clientName: 'Acme Corp', fixedPriceTotal: '50000.00' },
+      { id: 'inst2', installmentNumber: 2, description: 'Parcela 2', amount: '5000.00', dueDate: '2024-06-30', projectId: 'p1', projectName: 'Projeto Alpha', clientName: 'Acme Corp', fixedPriceTotal: '50000.00' },
+    ]
+
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain(rows) as never            // pending installments query
+      if (selectCall === 2) return createChain([{ projectId: 'p1', total: 10 }]) as never // total count
+      return createChain([]) as never
+    })
+
+    const result = await getPendingInstallmentsDetailed(2024, 6)
+    expect(result.projects).toHaveLength(1)
+    expect(result.projects[0].projectId).toBe('p1')
+    expect(result.projects[0].installments).toHaveLength(2)
+    expect(result.projects[0].installments[0].id).toBe('inst1')
+    expect(result.projects[0].installments[1].id).toBe('inst2')
+  })
+
+  it('retorna totalInstallments correto (todas, nao so pendentes)', async () => {
+    const rows = [
+      { id: 'inst5', installmentNumber: 5, description: 'Parcela 5', amount: '5000.00', dueDate: '2024-06-15', projectId: 'p1', projectName: 'Projeto Alpha', clientName: 'Acme Corp', fixedPriceTotal: '50000.00' },
+    ]
+
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain(rows) as never
+      if (selectCall === 2) return createChain([{ projectId: 'p1', total: 10 }]) as never
+      return createChain([]) as never
+    })
+
+    const result = await getPendingInstallmentsDetailed(2024, 6)
+    expect(result.projects[0].totalInstallments).toBe(10)
+  })
+
+  it('retorna vazio quando nao ha parcelas pendentes', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([]) as never)
+
+    const result = await getPendingInstallmentsDetailed(2024, 6)
+    expect(result.projects).toEqual([])
   })
 })

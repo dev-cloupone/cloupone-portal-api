@@ -1,6 +1,6 @@
 import { eq, and, asc, sql, count as drizzleCount } from 'drizzle-orm';
 import { db } from '../db';
-import { projectInstallments, projects } from '../db/schema';
+import { projectInstallments, projects, clients } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import type { DbTransaction } from '../utils/invoice-utils';
 
@@ -174,4 +174,79 @@ export async function getPendingInstallmentsWarning() {
       count: Number(r.count),
     })),
   };
+}
+
+export async function getPendingInstallmentsDetailed(year: number, month: number) {
+  const lastDay = new Date(year, month, 0); // ultimo dia do mes informado
+
+  const rows = await db
+    .select({
+      id: projectInstallments.id,
+      installmentNumber: projectInstallments.installmentNumber,
+      description: projectInstallments.description,
+      amount: projectInstallments.amount,
+      dueDate: projectInstallments.dueDate,
+      projectId: projects.id,
+      projectName: projects.name,
+      clientName: clients.companyName,
+      fixedPriceTotal: projects.fixedPriceTotal,
+    })
+    .from(projectInstallments)
+    .innerJoin(projects, eq(projectInstallments.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .where(
+      and(
+        eq(projectInstallments.status, 'pending'),
+        sql`${projectInstallments.dueDate} <= ${lastDay.toISOString().split('T')[0]}`,
+      ),
+    )
+    .orderBy(asc(projects.name), asc(projectInstallments.installmentNumber));
+
+  // Buscar total de parcelas por projeto (todas, nao so pendentes)
+  const projectIds = [...new Set(rows.map(r => r.projectId))];
+
+  const totalCounts = projectIds.length > 0
+    ? await db
+        .select({
+          projectId: projectInstallments.projectId,
+          total: drizzleCount(),
+        })
+        .from(projectInstallments)
+        .where(sql`${projectInstallments.projectId} IN ${projectIds}`)
+        .groupBy(projectInstallments.projectId)
+    : [];
+
+  const totalMap = new Map(totalCounts.map(t => [t.projectId, Number(t.total)]));
+
+  // Agrupar por projeto
+  const projectMap = new Map<string, {
+    projectId: string;
+    projectName: string;
+    clientName: string;
+    fixedPriceTotal: string;
+    totalInstallments: number;
+    installments: { id: string; installmentNumber: number; description: string | null; amount: string; dueDate: string | null }[];
+  }>();
+
+  for (const row of rows) {
+    if (!projectMap.has(row.projectId)) {
+      projectMap.set(row.projectId, {
+        projectId: row.projectId,
+        projectName: row.projectName,
+        clientName: row.clientName,
+        fixedPriceTotal: String(row.fixedPriceTotal),
+        totalInstallments: totalMap.get(row.projectId) ?? 0,
+        installments: [],
+      });
+    }
+    projectMap.get(row.projectId)!.installments.push({
+      id: row.id,
+      installmentNumber: row.installmentNumber,
+      description: row.description,
+      amount: String(row.amount),
+      dueDate: row.dueDate ? String(row.dueDate) : null,
+    });
+  }
+
+  return { projects: Array.from(projectMap.values()) };
 }

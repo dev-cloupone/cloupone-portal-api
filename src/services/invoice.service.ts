@@ -16,6 +16,12 @@ import { logger } from '../utils/logger';
 import { getNextInvoiceNumber, type DbTransaction } from '../utils/invoice-utils';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
+import { formatBRL } from '../utils/format-currency';
+
+const MONTH_NAMES = [
+  'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
 
 const MSG = {
   NOT_FOUND: 'Fatura não encontrada.',
@@ -396,6 +402,7 @@ export async function generateFromInstallments(
       clientName: clients.companyName,
       clientCnpj: clients.cnpj,
       billingType: projects.billingType,
+      fixedPriceTotal: projects.fixedPriceTotal,
     })
       .from(projects)
       .innerJoin(clients, eq(projects.clientId, clients.id))
@@ -437,6 +444,15 @@ export async function generateFromInstallments(
       createdBy,
     }).returning();
 
+    // Buscar total de parcelas do projeto (todas, nao so as selecionadas)
+    const [{ total: totalInstallments }] = await tx
+      .select({ total: drizzleCount() })
+      .from(projectInstallments)
+      .where(eq(projectInstallments.projectId, projectId));
+
+    const monthName = MONTH_NAMES[month - 1];
+    const contractTotal = formatBRL(Number(project.fixedPriceTotal));
+
     // Create lines for each installment
     let totalAmount = 0;
     const createdLines = [];
@@ -448,7 +464,7 @@ export async function generateFromInstallments(
       const [line] = await tx.insert(invoiceLines).values({
         invoiceId: invoice.id,
         lineType: 'installment',
-        description: inst.description || `Parcela ${inst.installmentNumber}`,
+        description: `Parcela ${inst.installmentNumber}/${totalInstallments} \u2014 Ref. ${monthName}/${year}\nContrato: R$ ${contractTotal}`,
         appliedHours: '1',
         appliedRate: inst.amount,
         subtotal: inst.amount,

@@ -21,8 +21,10 @@ const fonts = {
 
 const printer = new PdfPrinter(fonts, undefined, new UrlResolver());
 
+import { formatBRL } from '../utils/format-currency';
+
 function formatCurrency(value: number): string {
-  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `R$ ${formatBRL(value)}`;
 }
 
 function formatPeriod(start: string, end: string): string {
