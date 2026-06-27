@@ -1,9 +1,11 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import * as invoiceService from '../services/invoice.service';
-import { generateInvoiceHoursPdf } from '../services/invoice-pdf.service';
+import * as installmentService from '../services/installment.service';
+import { generateInvoicePdf } from '../services/invoice-pdf.service';
 import { paginationSchema } from '../utils/pagination';
 import { AppError } from '../utils/app-error';
+import { V } from '../utils/validation-messages';
 
 const idSchema = z.string().uuid();
 
@@ -37,7 +39,8 @@ const list: RequestHandler = async (req, res, next) => {
     const year = req.query.year ? Number(req.query.year) : undefined;
     const month = req.query.month ? Number(req.query.month) : undefined;
     const status = req.query.status as string | undefined;
-    const result = await invoiceService.list({ page, limit, clientId, projectId, year, month, status });
+    const invoiceType = req.query.invoiceType as string | undefined;
+    const result = await invoiceService.list({ page, limit, clientId, projectId, year, month, status, invoiceType });
     res.json(result);
   } catch (err) {
     next(err);
@@ -133,7 +136,7 @@ const getPdf: RequestHandler = async (req, res, next) => {
     if (!invoice.invoiceNumber) {
       throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
     }
-    const buffer = await generateInvoiceHoursPdf(id, bankAccountId);
+    const buffer = await generateInvoicePdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=fatura-${invoice.invoiceNumber}.pdf`);
     res.send(buffer);
@@ -195,10 +198,50 @@ const pendingApprovals: RequestHandler = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const generateFromInstallmentsSchema = z.object({
+  projectId: z.string().uuid(V.uuidInvalid('Projeto')),
+  installmentIds: z.array(z.string().uuid()).min(1, 'Selecione ao menos uma parcela'),
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+});
+
+const generateFromInstallments: RequestHandler = async (req, res, next) => {
+  try {
+    const data = generateFromInstallmentsSchema.parse(req.body);
+    const invoice = await invoiceService.generateFromInstallments(
+      data.projectId, data.installmentIds, data.year, data.month, req.userId!
+    );
+    res.status(201).json(invoice);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const pendingInstallments: RequestHandler = async (_req, res, next) => {
+  try {
+    const result = await installmentService.getPendingInstallmentsWarning();
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+const pendingInstallmentsDetailed: RequestHandler = async (req, res, next) => {
+  try {
+    const { year, month } = z.object({
+      year: z.coerce.number().int().min(2020).max(2100),
+      month: z.coerce.number().int().min(1).max(12),
+    }).parse(req.query);
+    const result = await installmentService.getPendingInstallmentsDetailed(year, month);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const invoiceController = {
   list,
   listMy,
   generate,
+  generateFromInstallments,
   getById,
   update,
   issue: issueInvoice,
@@ -209,6 +252,8 @@ export const invoiceController = {
   addCustomLine,
   removeCustomLine,
   pendingApprovals,
+  pendingInstallments,
+  pendingInstallmentsDetailed,
   revertToDraft,
   revertToIssued,
 };

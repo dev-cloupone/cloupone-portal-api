@@ -11,24 +11,34 @@ const createProjectSchema = z.object({
   name: z.string().min(2, V.min('Nome', 2)).max(255, V.max('Nome', 255)),
   description: z.string().optional(),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')),
-  billingRate: z.number().positive(V.greaterThanZero),
+  billingType: z.enum(['hourly', 'fixed_price']).optional().default('hourly'),
+  billingRate: z.number().positive(V.greaterThanZero).optional(),
+  fixedPriceTotal: z.number().positive(V.greaterThanZero).optional(),
   budgetHours: z.number().int(V.integer).positive(V.greaterThanZero).optional(),
   budgetType: z.enum(['monthly', 'total']).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-});
+}).refine(
+  (data) => data.billingType !== 'fixed_price' || (data.fixedPriceTotal != null && data.fixedPriceTotal > 0),
+  { message: 'Valor total do contrato é obrigatório para projetos de valor fixo', path: ['fixedPriceTotal'] }
+);
 
 const updateProjectSchema = z.object({
   name: z.string().min(2, V.min('Nome', 2)).max(255, V.max('Nome', 255)).optional(),
   description: z.string().optional(),
   clientId: z.string().uuid(V.uuidInvalid('Cliente')).optional(),
   status: z.enum(['active', 'paused', 'finished']).optional(),
-  billingRate: z.number().positive(V.greaterThanZero).optional(),
+  billingType: z.enum(['hourly', 'fixed_price']).optional(),
+  billingRate: z.number().nonnegative(V.greaterThanZero).optional(),
+  fixedPriceTotal: z.number().positive(V.greaterThanZero).nullable().optional(),
   budgetHours: z.number().int(V.integer).positive(V.greaterThanZero).optional(),
   budgetType: z.enum(['monthly', 'total']).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
-});
+}).refine(
+  (data) => data.billingType !== 'hourly' || data.billingRate === undefined || data.billingRate > 0,
+  { message: 'Valor/hora é obrigatório para projetos por hora', path: ['billingRate'] }
+);
 
 const addAllocationSchema = z.object({
   userId: z.string().uuid(V.uuidInvalid('Usuário')),

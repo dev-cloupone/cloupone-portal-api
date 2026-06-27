@@ -21,8 +21,10 @@ const fonts = {
 
 const printer = new PdfPrinter(fonts, undefined, new UrlResolver());
 
+import { formatBRL } from '../utils/format-currency';
+
 function formatCurrency(value: number): string {
-  return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `R$ ${formatBRL(value)}`;
 }
 
 function formatPeriod(start: string, end: string): string {
@@ -110,7 +112,7 @@ async function pdfToBuffer(docDefinition: TDocumentDefinitions): Promise<Buffer>
   });
 }
 
-export async function generateInvoiceHoursPdf(invoiceId: string, bankAccountId: string): Promise<Buffer> {
+export async function generateInvoicePdf(invoiceId: string, bankAccountId: string): Promise<Buffer> {
   // Fetch invoice with lines
   const [invoice] = await db.select()
     .from(invoices)
@@ -155,6 +157,7 @@ export async function generateInvoiceHoursPdf(invoiceId: string, bankAccountId: 
 
   // Separate lines by type
   const hoursLines = lines.filter(l => l.lineType === 'hours');
+  const installmentLines = lines.filter(l => l.lineType === 'installment');
   const customLines = lines.filter(l => l.lineType === 'custom');
 
   const content: Content[] = [
@@ -248,6 +251,37 @@ export async function generateInvoiceHoursPdf(invoiceId: string, bankAccountId: 
         headerRows: 1,
         widths: ['*', 60, 80, 90],
         body: tableBody,
+      },
+      layout: {
+        hLineWidth: () => 0.5,
+        vLineWidth: () => 0.5,
+        hLineColor: () => '#000',
+        vLineColor: () => '#000',
+      },
+      margin: [0, 0, 0, 10] as [number, number, number, number],
+    });
+  }
+
+  // Installment lines (fixed_price invoices)
+  if (installmentLines.length > 0) {
+    content.push({ text: 'PARCELAS', bold: true, fontSize: 11, margin: [0, 0, 0, 8] as [number, number, number, number], color: '#333' });
+
+    const installmentTableBody: TableCell[][] = [
+      [
+        { text: 'Descrição', style: 'tableHeader' },
+        { text: 'Valor', style: 'tableHeader', alignment: 'right' },
+      ],
+      ...installmentLines.map(l => [
+        l.description ?? '-',
+        { text: formatCurrency(Number(l.subtotal)), alignment: 'right' as const },
+      ]),
+    ];
+
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: ['*', 120],
+        body: installmentTableBody,
       },
       layout: {
         hLineWidth: () => 0.5,

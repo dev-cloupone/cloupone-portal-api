@@ -9,12 +9,19 @@ import {
   projects,
   clients,
   monthlyTimesheets,
+  projectInstallments,
 } from '../db/schema';
 import { AppError } from '../utils/app-error';
 import { logger } from '../utils/logger';
 import { getNextInvoiceNumber, type DbTransaction } from '../utils/invoice-utils';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
+import { formatBRL } from '../utils/format-currency';
+
+const MONTH_NAMES = [
+  'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
 
 const MSG = {
   NOT_FOUND: 'Fatura não encontrada.',
@@ -165,6 +172,7 @@ export async function generateDraft(projectId: string, year: number, month: numb
       clientId: projects.clientId,
       clientName: clients.companyName,
       clientCnpj: clients.cnpj,
+      billingType: projects.billingType,
     })
       .from(projects)
       .innerJoin(clients, eq(projects.clientId, clients.id))
@@ -172,6 +180,10 @@ export async function generateDraft(projectId: string, year: number, month: numb
       .limit(1);
 
     if (!project) throw new AppError('Projeto não encontrado.', 404);
+
+    if (project.billingType === 'fixed_price') {
+      throw new AppError('Projetos de valor fixo não geram faturas por hora. Use o fluxo de parcelas.', 400);
+    }
 
     // Check no draft invoice exists for project/month
     const [existingDraft] = await tx.select({ id: invoices.id })
@@ -210,6 +222,7 @@ export async function generateDraft(projectId: string, year: number, month: numb
       year,
       month,
       status: 'draft',
+      invoiceType: 'hourly',
       clientName: project.clientName,
       clientCnpj: project.clientCnpj,
       createdBy,
@@ -283,6 +296,11 @@ export async function regenerateInvoiceDraftsForConsultant(userId: string, year:
 
   for (const { projectId } of projectEntries) {
     try {
+      // Skip fixed_price projects — they don't auto-generate hourly invoices
+      const [proj] = await db.select({ billingType: projects.billingType })
+        .from(projects).where(eq(projects.id, projectId)).limit(1);
+      if (proj?.billingType === 'fixed_price') continue;
+
       await regenerateInvoiceDraftForProject(projectId, userId, year, month, triggeredBy);
     } catch (err) {
       logger.warn({ projectId, userId, year, month, err }, 'Invoice draft regen failed for project');
@@ -366,6 +384,110 @@ async function regenerateInvoiceDraftForProject(projectId: string, consultantId:
 
     await addOrUpdateConsultantLine(tx, targetInvoiceId, consultantId, projectId, year, month);
     await recalculateInvoiceTotals(tx, targetInvoiceId);
+  });
+}
+
+export async function generateFromInstallments(
+  projectId: string,
+  installmentIds: string[],
+  year: number,
+  month: number,
+  createdBy: string,
+) {
+  return await db.transaction(async (tx) => {
+    // Get project with client
+    const [project] = await tx.select({
+      id: projects.id,
+      clientId: projects.clientId,
+      clientName: clients.companyName,
+      clientCnpj: clients.cnpj,
+      billingType: projects.billingType,
+      fixedPriceTotal: projects.fixedPriceTotal,
+    })
+      .from(projects)
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (!project) throw new AppError('Projeto não encontrado.', 404);
+    if (project.billingType !== 'fixed_price') {
+      throw new AppError('Apenas projetos de valor fixo podem gerar faturas por parcelas.', 400);
+    }
+
+    // Fetch installments
+    const installments = await tx.select()
+      .from(projectInstallments)
+      .where(and(
+        eq(projectInstallments.projectId, projectId),
+        sql`${projectInstallments.id} IN (${sql.join(installmentIds.map(id => sql`${id}`), sql`, `)})`,
+      ));
+
+    if (installments.length !== installmentIds.length) {
+      throw new AppError('Uma ou mais parcelas não pertencem a este projeto.', 400);
+    }
+
+    const nonPending = installments.filter(i => i.status !== 'pending');
+    if (nonPending.length > 0) {
+      throw new AppError('Todas as parcelas selecionadas devem estar pendentes.', 400);
+    }
+
+    // Create invoice
+    const [invoice] = await tx.insert(invoices).values({
+      clientId: project.clientId,
+      projectId,
+      year,
+      month,
+      status: 'draft',
+      invoiceType: 'fixed_price',
+      clientName: project.clientName,
+      clientCnpj: project.clientCnpj,
+      createdBy,
+    }).returning();
+
+    // Buscar total de parcelas do projeto (todas, nao so as selecionadas)
+    const [{ total: totalInstallments }] = await tx
+      .select({ total: drizzleCount() })
+      .from(projectInstallments)
+      .where(eq(projectInstallments.projectId, projectId));
+
+    const monthName = MONTH_NAMES[month - 1];
+    const contractTotal = formatBRL(Number(project.fixedPriceTotal));
+
+    // Create lines for each installment
+    let totalAmount = 0;
+    const createdLines = [];
+
+    for (const inst of installments) {
+      const amount = Number(inst.amount);
+      totalAmount += amount;
+
+      const [line] = await tx.insert(invoiceLines).values({
+        invoiceId: invoice.id,
+        lineType: 'installment',
+        description: `Parcela ${inst.installmentNumber}/${totalInstallments} \u2014 Ref. ${monthName}/${year}\nContrato: R$ ${contractTotal}`,
+        appliedHours: '1',
+        appliedRate: inst.amount,
+        subtotal: inst.amount,
+        installmentId: inst.id,
+      }).returning();
+
+      createdLines.push(line);
+
+      // Update installment status
+      await tx.update(projectInstallments).set({
+        status: 'invoiced',
+        invoiceId: invoice.id,
+        updatedAt: new Date(),
+      }).where(eq(projectInstallments.id, inst.id));
+    }
+
+    // Update totals
+    const [updated] = await tx.update(invoices).set({
+      totalHours: '0',
+      totalAmount: totalAmount.toFixed(2),
+    }).where(eq(invoices.id, invoice.id)).returning();
+
+    return { ...updated, lines: createdLines };
   });
 }
 
@@ -503,6 +625,13 @@ export async function pay(invoiceId: string, paidBy: string) {
       updatedAt: new Date(),
     }).where(eq(invoices.id, invoiceId)).returning();
 
+    // Update installments to paid
+    if (invoice.invoiceType === 'fixed_price') {
+      await tx.update(projectInstallments)
+        .set({ status: 'paid', updatedAt: new Date() })
+        .where(eq(projectInstallments.invoiceId, invoiceId));
+    }
+
     return updated;
   });
 }
@@ -524,6 +653,13 @@ export async function cancel(invoiceId: string, cancelledBy: string) {
       updatedAt: new Date(),
     }).where(eq(invoices.id, invoiceId)).returning();
 
+    // Revert installments to pending
+    if (invoice.invoiceType === 'fixed_price') {
+      await tx.update(projectInstallments)
+        .set({ status: 'pending', invoiceId: null, updatedAt: new Date() })
+        .where(eq(projectInstallments.invoiceId, invoiceId));
+    }
+
     return updated;
   });
 }
@@ -537,6 +673,13 @@ export async function remove(invoiceId: string) {
 
     if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
     if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_DELETE, 400);
+
+    // Revert installments to pending before deleting
+    if (invoice.invoiceType === 'fixed_price') {
+      await tx.update(projectInstallments)
+        .set({ status: 'pending', invoiceId: null, updatedAt: new Date() })
+        .where(eq(projectInstallments.invoiceId, invoiceId));
+    }
 
     await tx.delete(invoices).where(eq(invoices.id, invoiceId));
   });
@@ -576,6 +719,13 @@ export async function revertToDraft(invoiceId: string) {
         updatedAt: new Date(),
       }).where(eq(invoices.id, invoiceId)).returning();
 
+      // Revert installments to invoiced (they stay linked to the draft)
+      if (invoice.invoiceType === 'fixed_price') {
+        await tx.update(projectInstallments)
+          .set({ status: 'invoiced', updatedAt: new Date() })
+          .where(eq(projectInstallments.invoiceId, invoiceId));
+      }
+
       return updated;
     } catch (err: any) {
       if (err?.code === '23505') {
@@ -603,12 +753,19 @@ export async function revertToIssued(invoiceId: string) {
       updatedAt: new Date(),
     }).where(eq(invoices.id, invoiceId)).returning();
 
+    // Revert installments from paid to invoiced
+    if (invoice.invoiceType === 'fixed_price') {
+      await tx.update(projectInstallments)
+        .set({ status: 'invoiced', updatedAt: new Date() })
+        .where(eq(projectInstallments.invoiceId, invoiceId));
+    }
+
     return updated;
   });
 }
 
-export async function list(params: PaginationParams & { clientId?: string; projectId?: string; year?: number; month?: number; status?: string }) {
-  const { page, limit, clientId, projectId, year, month, status } = params;
+export async function list(params: PaginationParams & { clientId?: string; projectId?: string; year?: number; month?: number; status?: string; invoiceType?: string }) {
+  const { page, limit, clientId, projectId, year, month, status, invoiceType } = params;
   const offset = (page - 1) * limit;
 
   const conditions: ReturnType<typeof eq>[] = [];
@@ -617,6 +774,7 @@ export async function list(params: PaginationParams & { clientId?: string; proje
   if (year) conditions.push(eq(invoices.year, year));
   if (month) conditions.push(eq(invoices.month, month));
   if (status) conditions.push(eq(invoices.status, status as 'draft' | 'issued' | 'paid' | 'cancelled'));
+  if (invoiceType) conditions.push(eq(invoices.invoiceType, invoiceType as 'hourly' | 'fixed_price'));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -632,6 +790,7 @@ export async function list(params: PaginationParams & { clientId?: string; proje
       year: invoices.year,
       month: invoices.month,
       status: invoices.status,
+      invoiceType: invoices.invoiceType,
       totalHours: invoices.totalHours,
       totalAmount: invoices.totalAmount,
       issuedAt: invoices.issuedAt,
@@ -673,6 +832,7 @@ export async function listByClient(clientId: string, params: PaginationParams) {
       year: invoices.year,
       month: invoices.month,
       status: invoices.status,
+      invoiceType: invoices.invoiceType,
       totalHours: invoices.totalHours,
       totalAmount: invoices.totalAmount,
       issuedAt: invoices.issuedAt,
@@ -710,6 +870,7 @@ export async function getById(invoiceId: string, requestUserId: string, requestU
     issuedAt: invoices.issuedAt,
     paidAt: invoices.paidAt,
     cancelledAt: invoices.cancelledAt,
+    invoiceType: invoices.invoiceType,
     notes: invoices.notes,
     createdAt: invoices.createdAt,
   })

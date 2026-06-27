@@ -246,6 +246,13 @@
       "when": 1780819200000,
       "tag": "0034_import_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1780905600000,
+      "tag": "0035_fixed_price_billing",
+      "breakpoints": true
     }
   ]
 }

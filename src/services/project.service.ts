@@ -46,7 +46,9 @@ export async function listProjects(params: PaginationParams & {
         clientId: projects.clientId,
         clientName: clients.companyName,
         status: projects.status,
+        billingType: projects.billingType,
         billingRate: projects.billingRate,
+        fixedPriceTotal: projects.fixedPriceTotal,
         budgetHours: projects.budgetHours,
         budgetType: projects.budgetType,
         startDate: projects.startDate,
@@ -75,7 +77,9 @@ export async function listProjects(params: PaginationParams & {
       clientId: projects.clientId,
       clientName: clients.companyName,
       status: projects.status,
+      billingType: projects.billingType,
       billingRate: projects.billingRate,
+      fixedPriceTotal: projects.fixedPriceTotal,
       budgetHours: projects.budgetHours,
       budgetType: projects.budgetType,
       startDate: projects.startDate,
@@ -109,6 +113,8 @@ export async function getProjectById(id: string) {
     budgetType: projects.budgetType,
     startDate: projects.startDate,
     endDate: projects.endDate,
+    billingType: projects.billingType,
+    fixedPriceTotal: projects.fixedPriceTotal,
     isActive: projects.isActive,
     createdAt: projects.createdAt,
     updatedAt: projects.updatedAt,
@@ -126,7 +132,9 @@ export async function createProject(data: {
   name: string;
   description?: string;
   clientId: string;
-  billingRate: number;
+  billingType?: 'hourly' | 'fixed_price';
+  billingRate?: number;
+  fixedPriceTotal?: number;
   budgetHours?: number;
   budgetType?: string;
   startDate?: string;
@@ -135,10 +143,11 @@ export async function createProject(data: {
   const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, data.clientId)).limit(1);
   if (!client) throw new AppError(PROJECT.CLIENT_NOT_FOUND, 404);
 
-  const { startDate, endDate, ...rest } = data;
+  const { startDate, endDate, billingRate, fixedPriceTotal, ...rest } = data;
   const [created] = await db.insert(projects).values({
     ...rest,
-    billingRate: String(data.billingRate),
+    billingRate: String(billingRate ?? 0),
+    fixedPriceTotal: fixedPriceTotal != null ? String(fixedPriceTotal) : null,
     startDate: startDate ? new Date(startDate) : undefined,
     endDate: endDate ? new Date(endDate) : undefined,
   }).returning();
@@ -150,7 +159,9 @@ export async function updateProject(id: string, data: Partial<{
   description: string;
   clientId: string;
   status: 'active' | 'paused' | 'finished';
+  billingType: 'hourly' | 'fixed_price';
   billingRate: number;
+  fixedPriceTotal: number | null;
   budgetHours: number;
   budgetType: string;
   startDate: string;
@@ -164,7 +175,9 @@ export async function updateProject(id: string, data: Partial<{
   if (data.description !== undefined) updateData.description = data.description;
   if (data.clientId !== undefined) updateData.clientId = data.clientId;
   if (data.status !== undefined) updateData.status = data.status;
+  if (data.billingType !== undefined) updateData.billingType = data.billingType;
   if (data.billingRate !== undefined) updateData.billingRate = String(data.billingRate);
+  if (data.fixedPriceTotal !== undefined) updateData.fixedPriceTotal = data.fixedPriceTotal != null ? String(data.fixedPriceTotal) : null;
   if (data.budgetHours !== undefined) updateData.budgetHours = data.budgetHours;
   if (data.budgetType !== undefined) updateData.budgetType = data.budgetType;
   if (data.startDate !== undefined) updateData.startDate = new Date(data.startDate);

@@ -6,7 +6,7 @@ export { files } from './files';
 export { loginHistory } from './login-history';
 export { contractTypeEnum, consultantProfiles } from './consultant-profiles';
 export { clients } from './clients';
-export { projectStatusEnum, projects } from './projects';
+export { projectStatusEnum, billingTypeEnum, projects } from './projects';
 export { projectAllocations } from './project-allocations';
 export { timeEntries } from './time-entries';
 export { monthlyTimesheetStatusEnum, monthlyTimesheets } from './monthly-timesheets';
@@ -20,6 +20,7 @@ export { consultantPaymentStatusEnum, consultantPayments, consultantPaymentLines
 export { expensePaymentStatusEnum, expensePayments, expensePaymentItems } from './expense-payments';
 export { companyInfo } from './company-info';
 export { accountTypeEnum, bankAccounts } from './bank-accounts';
-export { invoiceStatusEnum, invoiceLineTypeEnum, invoices, invoiceLines } from './invoices';
+export { invoiceStatusEnum, invoiceLineTypeEnum, invoiceTypeEnum, invoices, invoiceLines } from './invoices';
+export { installmentStatusEnum, projectInstallments } from './project-installments';
 export { expenseInvoices, expenseInvoiceItems } from './expense-invoices';
 export { importLogs } from './import-logs';
