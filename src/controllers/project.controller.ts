@@ -19,9 +19,6 @@ const createProjectSchema = z.object({
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
 }).refine(
-  (data) => data.billingType === 'fixed_price' || (data.billingRate != null && data.billingRate > 0),
-  { message: 'Valor/hora é obrigatório para projetos por hora', path: ['billingRate'] }
-).refine(
   (data) => data.billingType !== 'fixed_price' || (data.fixedPriceTotal != null && data.fixedPriceTotal > 0),
   { message: 'Valor total do contrato é obrigatório para projetos de valor fixo', path: ['fixedPriceTotal'] }
 );
