@@ -1,4 +1,4 @@
-import { eq, and, asc, sql, count as drizzleCount } from 'drizzle-orm';
+import { eq, and, asc, sql, count as drizzleCount, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { projectInstallments, projects, clients } from '../db/schema';
 import { AppError } from '../utils/app-error';
@@ -212,7 +212,7 @@ export async function getPendingInstallmentsDetailed(year: number, month: number
           total: drizzleCount(),
         })
         .from(projectInstallments)
-        .where(sql`${projectInstallments.projectId} IN ${projectIds}`)
+        .where(inArray(projectInstallments.projectId, projectIds))
         .groupBy(projectInstallments.projectId)
     : [];
 

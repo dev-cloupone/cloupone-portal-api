@@ -10,6 +10,7 @@ router.get('/', auth, authorize('super_admin', 'administrative'), authenticatedR
 router.get('/my', auth, authorize('client'), authenticatedRateLimit, invoiceController.listMy);
 router.get('/pending-approvals', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.pendingApprovals);
 router.get('/pending-installments', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.pendingInstallments);
+router.get('/pending-installments-detailed', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.pendingInstallmentsDetailed);
 router.post('/', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.generate);
 router.post('/from-installments', auth, authorize('super_admin', 'administrative'), authenticatedRateLimit, invoiceController.generateFromInstallments);
 router.get('/:id', auth, authorize('super_admin', 'administrative', 'client'), authenticatedRateLimit, invoiceController.getById);

@@ -9,6 +9,7 @@ vi.mock('drizzle-orm', () => ({
   sql: Object.assign(vi.fn(), { join: vi.fn() }),
   count: vi.fn(),
   desc: vi.fn(),
+  inArray: vi.fn(),
 }))
 
 vi.mock('../../db/schema', () => ({
