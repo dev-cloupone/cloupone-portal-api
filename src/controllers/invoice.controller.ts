@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import * as invoiceService from '../services/invoice.service';
 import * as installmentService from '../services/installment.service';
-import { generateInvoiceHoursPdf } from '../services/invoice-pdf.service';
+import { generateInvoicePdf } from '../services/invoice-pdf.service';
 import { paginationSchema } from '../utils/pagination';
 import { AppError } from '../utils/app-error';
 import { V } from '../utils/validation-messages';
@@ -136,7 +136,7 @@ const getPdf: RequestHandler = async (req, res, next) => {
     if (!invoice.invoiceNumber) {
       throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
     }
-    const buffer = await generateInvoiceHoursPdf(id, bankAccountId);
+    const buffer = await generateInvoicePdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=fatura-${invoice.invoiceNumber}.pdf`);
     res.send(buffer);

@@ -112,7 +112,7 @@ async function pdfToBuffer(docDefinition: TDocumentDefinitions): Promise<Buffer>
   });
 }
 
-export async function generateInvoiceHoursPdf(invoiceId: string, bankAccountId: string): Promise<Buffer> {
+export async function generateInvoicePdf(invoiceId: string, bankAccountId: string): Promise<Buffer> {
   // Fetch invoice with lines
   const [invoice] = await db.select()
     .from(invoices)

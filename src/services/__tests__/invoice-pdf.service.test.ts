@@ -73,7 +73,7 @@ vi.mock('../../db', () => ({
 }))
 
 import { createChain } from '../../__test-utils__/drizzle-chain'
-import { generateInvoiceHoursPdf, generateInvoiceExpensesPdf } from '../invoice-pdf.service'
+import { generateInvoicePdf, generateInvoiceExpensesPdf } from '../invoice-pdf.service'
 import { db } from '../../db'
 
 beforeEach(() => {
@@ -86,9 +86,9 @@ beforeEach(() => {
   })
 })
 
-// ─── generateInvoiceHoursPdf ────────────────────────────────────────────────
+// ─── generateInvoicePdf ────────────────────────────────────────────────
 
-describe('generateInvoiceHoursPdf', () => {
+describe('generateInvoicePdf', () => {
   const mockInvoice = {
     id: 'inv1', projectId: 'p1', invoiceNumber: 42, status: 'issued',
     totalAmount: '8000.00', clientName: 'Acme', clientCnpj: '123',
@@ -107,7 +107,7 @@ describe('generateInvoiceHoursPdf', () => {
     vi.mocked(db.query.companyInfo.findFirst).mockResolvedValue(mockCompany)
     vi.mocked(db.query.bankAccounts.findFirst).mockResolvedValue(mockBankAccount)
 
-    const result = await generateInvoiceHoursPdf('inv1', 'bank1')
+    const result = await generateInvoicePdf('inv1', 'bank1')
     expect(Buffer.isBuffer(result)).toBe(true)
   })
 
@@ -119,7 +119,7 @@ describe('generateInvoiceHoursPdf', () => {
     vi.mocked(db.query.companyInfo.findFirst).mockResolvedValue(mockCompany)
     vi.mocked(db.query.bankAccounts.findFirst).mockResolvedValue(mockBankAccount)
 
-    const result = await generateInvoiceHoursPdf('inv1', 'bank1')
+    const result = await generateInvoicePdf('inv1', 'bank1')
     expect(result).toBeDefined()
   })
 
@@ -136,14 +136,14 @@ describe('generateInvoiceHoursPdf', () => {
     vi.mocked(db.query.companyInfo.findFirst).mockResolvedValue(mockCompany)
     vi.mocked(db.query.bankAccounts.findFirst).mockResolvedValue(mockBankAccount)
 
-    const result = await generateInvoiceHoursPdf('inv1', 'bank1')
+    const result = await generateInvoicePdf('inv1', 'bank1')
     expect(Buffer.isBuffer(result)).toBe(true)
   })
 
   it('lanca erro se invoice nao encontrada', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([]) as never)
 
-    await expect(generateInvoiceHoursPdf('xxx', 'bank1'))
+    await expect(generateInvoicePdf('xxx', 'bank1'))
       .rejects.toThrow(AppError)
   })
 
@@ -154,7 +154,7 @@ describe('generateInvoiceHoursPdf', () => {
       .mockReturnValueOnce(createChain([{ name: 'Proj' }]) as never)
     vi.mocked(db.query.companyInfo.findFirst).mockResolvedValue(null as any)
 
-    await expect(generateInvoiceHoursPdf('inv1', 'bank1'))
+    await expect(generateInvoicePdf('inv1', 'bank1'))
       .rejects.toThrow(AppError)
   })
 })

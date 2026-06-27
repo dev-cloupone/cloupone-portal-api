@@ -112,7 +112,7 @@ app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 app.use('/api/payments/hours', consultantPaymentRoutes);
 app.use('/api/payments/expenses', expensePaymentRoutes);
 app.use('/api/projects/:projectId/installments', installmentRoutes);
-app.use('/api/invoices/hours', invoiceRoutes);
+app.use('/api/invoices/services', invoiceRoutes);
 app.use('/api/invoices/expenses', expenseInvoiceRoutes);
 
 app.use(errorHandler);
