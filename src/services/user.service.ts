@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { eq, and, count as drizzleCount, desc, type SQL } from 'drizzle-orm';
 import { db } from '../db';
 import { users } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { USER } from '../utils/error-messages';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -83,7 +83,7 @@ export async function createUser(data: { name: string; email: string; password: 
     .limit(1);
 
   if (existing) {
-    throw new AppError(USER.EMAIL_IN_USE, 409);
+    throw appError(USER.EMAIL_IN_USE, 409);
   }
 
   const settings = await getSettingsMap();
@@ -140,7 +140,7 @@ export async function updateUser(
     .limit(1);
 
   if (!existing) {
-    throw new AppError(USER.NOT_FOUND, 404);
+    throw appError(USER.NOT_FOUND, 404);
   }
 
   if (data.email) {
@@ -151,7 +151,7 @@ export async function updateUser(
       .limit(1);
 
     if (emailTaken && emailTaken.id !== id) {
-      throw new AppError(USER.EMAIL_IN_USE, 409);
+      throw appError(USER.EMAIL_IN_USE, 409);
     }
   }
 
@@ -182,7 +182,7 @@ export async function getUserClientId(userId: string, userRole: string): Promise
 
 export async function deactivateUser(id: string, requestingUserId: string) {
   if (id === requestingUserId) {
-    throw new AppError(USER.CANNOT_DEACTIVATE_SELF, 400);
+    throw appError(USER.CANNOT_DEACTIVATE_SELF, 400);
   }
 
   const [existing] = await db
@@ -192,7 +192,7 @@ export async function deactivateUser(id: string, requestingUserId: string) {
     .limit(1);
 
   if (!existing) {
-    throw new AppError(USER.NOT_FOUND, 404);
+    throw appError(USER.NOT_FOUND, 404);
   }
 
   const [updated] = await db

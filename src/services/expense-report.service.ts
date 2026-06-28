@@ -8,7 +8,16 @@ const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
 import { expenses, projectExpensePeriods, projectExpenseCategories, users, projects, clients, companyInfo, bankAccounts } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
+
+const MSG = {
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'PROJECT_NOT_FOUND' },
+  NO_PERIODS: { message: 'Nenhum período encontrado.', code: 'NO_PERIODS_FOUND' },
+  BANK_ACCOUNT_REQUIRED: { message: 'Conta bancaria e obrigatoria para relatorio na visao cliente', code: 'BANK_ACCOUNT_REQUIRED' },
+  COMPANY_NOT_CONFIGURED: { message: 'Dados da empresa nao configurados. Acesse Configuracoes > Dados da Empresa.', code: 'COMPANY_NOT_CONFIGURED' },
+  BANK_ACCOUNT_NOT_FOUND: { message: 'Conta bancaria nao encontrada', code: 'BANK_ACCOUNT_NOT_FOUND' },
+  BANK_ACCOUNT_INACTIVE: { message: 'Conta bancaria selecionada esta inativa', code: 'BANK_ACCOUNT_INACTIVE' },
+} as const;
 
 const fonts = {
   Helvetica: {
@@ -106,7 +115,7 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
     .innerJoin(clients, eq(projects.clientId, clients.id))
     .where(eq(projects.id, filters.projectId))
     .limit(1);
-  if (!project) throw new AppError('Projeto não encontrado.', 404);
+  if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
   // 2. Buscar períodos selecionados
   const periods = await db
@@ -118,7 +127,7 @@ export async function getExpenseReportData(filters: ExpenseReportFilters): Promi
     ))
     .orderBy(asc(projectExpensePeriods.weekStart));
 
-  if (periods.length === 0) throw new AppError('Nenhum período encontrado.', 404);
+  if (periods.length === 0) throw appError(MSG.NO_PERIODS, 404);
 
   // 3. Buscar todas as despesas aprovadas dos períodos em uma única query
   const dateConditions = periods.map((p) => between(expenses.date, p.weekStart, p.weekEnd));
@@ -227,7 +236,7 @@ export async function generateExpenseReportPdf(filters: ExpenseReportFilters): P
   const data = await getExpenseReportData(filters);
   if (data.view === 'client') {
     if (!filters.bankAccountId) {
-      throw new AppError('Conta bancaria e obrigatoria para relatorio na visao cliente', 400);
+      throw appError(MSG.BANK_ACCOUNT_REQUIRED, 400);
     }
     return generateClientPdf(data, filters.bankAccountId);
   }
@@ -344,7 +353,7 @@ async function generateClientPdf(data: ExpenseReportResult, bankAccountId: strin
   // Buscar dados da empresa
   const company = await db.query.companyInfo.findFirst();
   if (!company) {
-    throw new AppError('Dados da empresa nao configurados. Acesse Configuracoes > Dados da Empresa.', 400);
+    throw appError(MSG.COMPANY_NOT_CONFIGURED, 400);
   }
 
   // Buscar conta bancaria
@@ -352,10 +361,10 @@ async function generateClientPdf(data: ExpenseReportResult, bankAccountId: strin
     where: eq(bankAccounts.id, bankAccountId),
   });
   if (!bankAccount) {
-    throw new AppError('Conta bancaria nao encontrada', 404);
+    throw appError(MSG.BANK_ACCOUNT_NOT_FOUND, 404);
   }
   if (!bankAccount.isActive) {
-    throw new AppError('Conta bancaria selecionada esta inativa', 400);
+    throw appError(MSG.BANK_ACCOUNT_INACTIVE, 400);
   }
 
   const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');

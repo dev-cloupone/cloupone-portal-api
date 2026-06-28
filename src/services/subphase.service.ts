@@ -1,13 +1,13 @@
 import { eq, and, asc, sum, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { projectSubphases, projectPhases, subphaseConsultants, timeEntries, users } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { calculateEndDate } from '../utils/business-days';
 
 const MSG = {
-  PHASE_NOT_FOUND: 'Fase não encontrada.',
-  SUBPHASE_NOT_FOUND: 'Subfase não encontrada.',
-  INVALID_STATUS_TRANSITION: 'Transição de status inválida.',
+  PHASE_NOT_FOUND: { message: 'Fase não encontrada.', code: 'SUBPHASE_PHASE_NOT_FOUND' },
+  SUBPHASE_NOT_FOUND: { message: 'Subfase não encontrada.', code: 'SUBPHASE_NOT_FOUND' },
+  INVALID_STATUS_TRANSITION: { message: 'Transição de status inválida.', code: 'SUBPHASE_INVALID_STATUS_TRANSITION' },
 } as const;
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -19,7 +19,7 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 export async function listSubphases(phaseId: string) {
   const [phase] = await db.select({ id: projectPhases.id })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
-  if (!phase) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+  if (!phase) throw appError(MSG.PHASE_NOT_FOUND, 404);
 
   const subphases = await db.select()
     .from(projectSubphases)
@@ -68,7 +68,7 @@ export async function createSubphase(phaseId: string, data: {
 }) {
   const [phase] = await db.select({ id: projectPhases.id })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
-  if (!phase) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+  if (!phase) throw appError(MSG.PHASE_NOT_FOUND, 404);
 
   let endDate: string | undefined;
   if (data.startDate && data.businessDays) {
@@ -103,7 +103,7 @@ export async function updateSubphase(subphaseId: string, data: Partial<{
 }>) {
   const [existing] = await db.select()
     .from(projectSubphases).where(eq(projectSubphases.id, subphaseId)).limit(1);
-  if (!existing) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.SUBPHASE_NOT_FOUND, 404);
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) updateData.name = data.name;
@@ -127,11 +127,11 @@ export async function updateSubphase(subphaseId: string, data: Partial<{
 export async function updateSubphaseStatus(subphaseId: string, newStatus: string) {
   const [existing] = await db.select()
     .from(projectSubphases).where(eq(projectSubphases.id, subphaseId)).limit(1);
-  if (!existing) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.SUBPHASE_NOT_FOUND, 404);
 
   const allowedTransitions = VALID_TRANSITIONS[existing.status] || [];
   if (!allowedTransitions.includes(newStatus)) {
-    throw new AppError(MSG.INVALID_STATUS_TRANSITION, 400);
+    throw appError(MSG.INVALID_STATUS_TRANSITION, 400);
   }
 
   const [updated] = await db.update(projectSubphases)
@@ -143,7 +143,7 @@ export async function updateSubphaseStatus(subphaseId: string, newStatus: string
 export async function deactivateSubphase(subphaseId: string) {
   const [existing] = await db.select({ id: projectSubphases.id })
     .from(projectSubphases).where(eq(projectSubphases.id, subphaseId)).limit(1);
-  if (!existing) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.SUBPHASE_NOT_FOUND, 404);
 
   const [updated] = await db.update(projectSubphases)
     .set({ isActive: false, updatedAt: new Date() })

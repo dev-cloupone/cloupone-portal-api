@@ -1,7 +1,7 @@
 import { eq, and, or, between, count as drizzleCount, desc, asc, inArray, isNull, sql, gte, lt } from 'drizzle-orm';
 import { db } from '../db';
 import { expenses, expenseComments, projectExpenseCategories, projects, projectAllocations, users, clients, files } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 
@@ -11,24 +11,32 @@ import * as expensePaymentService from './expense-payment.service';
 import * as expenseInvoiceService from './expense-invoice.service';
 
 const MSG = {
-  NOT_FOUND: 'Despesa não encontrada.',
-  NOT_OWNER: 'Você não pode editar despesas de outro usuário.',
-  NOT_CREATED: 'Apenas despesas criadas podem ser excluídas.',
-  NOT_CREATED_OR_REJECTED: 'Despesas aprovadas não podem ser editadas.',
-  NOT_REJECTED: 'Apenas despesas rejeitadas podem ser resubmetidas.',
-  NOT_PENDING: 'Apenas despesas pendentes podem ser aprovadas ou rejeitadas.',
-  NOT_ALLOCATED: 'Consultor não está alocado neste projeto.',
-  COMMENT_REQUIRED: 'Comentário é obrigatório ao rejeitar uma despesa.',
-  PROJECT_NOT_FOUND: 'Projeto não encontrado ou inativo.',
-  CATEGORY_NOT_FOUND: 'Categoria não encontrada ou inativa.',
-  NOT_APPROVED_REIMBURSABLE: 'Apenas despesas aprovadas com reembolso pendente podem ser marcadas como reembolsadas.',
-  ALREADY_REIMBURSED: 'Despesa já foi reembolsada.',
-  NOT_REIMBURSED: 'Despesa não está marcada como reembolsada.',
-  PERIOD_NOT_OPEN: 'Esta data não está em um período aberto para lançamento de despesas.',
-  KM_QUANTITY_REQUIRED: 'Quantidade de KM é obrigatória para esta categoria.',
-  CATEGORY_NOT_IN_PROJECT: 'Esta categoria não está disponível neste projeto.',
-  RECEIPT_REQUIRED: 'Esta categoria exige comprovante. Anexe um comprovante antes de salvar.',
-  CANNOT_EDIT_REIMBURSEMENT: 'Consultor não pode alterar a marcação de reembolso após a criação.',
+  NOT_FOUND: { message: 'Despesa não encontrada.', code: 'EXPENSE_NOT_FOUND' },
+  NOT_OWNER: { message: 'Você não pode editar despesas de outro usuário.', code: 'EXPENSE_NOT_OWNER' },
+  NOT_CREATED: { message: 'Apenas despesas criadas podem ser excluídas.', code: 'EXPENSE_NOT_CREATED' },
+  NOT_CREATED_OR_REJECTED: { message: 'Despesas aprovadas não podem ser editadas.', code: 'EXPENSE_NOT_CREATED_OR_REJECTED' },
+  NOT_REJECTED: { message: 'Apenas despesas rejeitadas podem ser resubmetidas.', code: 'EXPENSE_NOT_REJECTED' },
+  NOT_PENDING: { message: 'Apenas despesas pendentes podem ser aprovadas ou rejeitadas.', code: 'EXPENSE_NOT_PENDING' },
+  NOT_ALLOCATED: { message: 'Consultor não está alocado neste projeto.', code: 'EXPENSE_NOT_ALLOCATED' },
+  COMMENT_REQUIRED: { message: 'Comentário é obrigatório ao rejeitar uma despesa.', code: 'EXPENSE_COMMENT_REQUIRED' },
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado ou inativo.', code: 'EXPENSE_PROJECT_NOT_FOUND' },
+  CATEGORY_NOT_FOUND: { message: 'Categoria não encontrada ou inativa.', code: 'EXPENSE_CATEGORY_NOT_FOUND' },
+  NOT_APPROVED_REIMBURSABLE: { message: 'Apenas despesas aprovadas com reembolso pendente podem ser marcadas como reembolsadas.', code: 'EXPENSE_NOT_APPROVED_REIMBURSABLE' },
+  ALREADY_REIMBURSED: { message: 'Despesa já foi reembolsada.', code: 'EXPENSE_ALREADY_REIMBURSED' },
+  NOT_REIMBURSED: { message: 'Despesa não está marcada como reembolsada.', code: 'EXPENSE_NOT_REIMBURSED' },
+  PERIOD_NOT_OPEN: { message: 'Esta data não está em um período aberto para lançamento de despesas.', code: 'EXPENSE_PERIOD_NOT_OPEN' },
+  KM_QUANTITY_REQUIRED: { message: 'Quantidade de KM é obrigatória para esta categoria.', code: 'EXPENSE_KM_QUANTITY_REQUIRED' },
+  CATEGORY_NOT_IN_PROJECT: { message: 'Esta categoria não está disponível neste projeto.', code: 'EXPENSE_CATEGORY_NOT_IN_PROJECT' },
+  RECEIPT_REQUIRED: { message: 'Esta categoria exige comprovante. Anexe um comprovante antes de salvar.', code: 'EXPENSE_RECEIPT_REQUIRED' },
+  CANNOT_EDIT_REIMBURSEMENT: { message: 'Consultor não pode alterar a marcação de reembolso após a criação.', code: 'EXPENSE_CANNOT_EDIT_REIMBURSEMENT' },
+  CONSULTANT_VIEW_FORBIDDEN: { message: 'Consultores não podem visualizar despesas de outros.', code: 'EXPENSE_CONSULTANT_VIEW_FORBIDDEN' },
+  NO_PROJECT_ACCESS: { message: 'Sem acesso a este projeto.', code: 'EXPENSE_NO_PROJECT_ACCESS' },
+  ONLY_GESTORS_CAN_REVERT: { message: 'Apenas gestores podem reverter despesas.', code: 'EXPENSE_ONLY_GESTORS_CAN_REVERT' },
+  ONLY_APPROVED_CAN_REVERT: { message: 'Apenas despesas aprovadas podem ser revertidas.', code: 'EXPENSE_ONLY_APPROVED_CAN_REVERT' },
+  REIMBURSED_CANNOT_REVERT: { message: 'Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', code: 'EXPENSE_REIMBURSED_CANNOT_REVERT' },
+  LINKED_PAYMENT_CONFIRMED: { message: 'Despesa vinculada a um pagamento confirmado/pago. Cancele o pagamento antes de reverter.', code: 'EXPENSE_LINKED_PAYMENT_CONFIRMED' },
+  LINKED_INVOICE_ISSUED: { message: 'Despesa vinculada a uma fatura emitida/paga. Cancele a fatura antes de reverter.', code: 'EXPENSE_LINKED_INVOICE_ISSUED' },
+  DATE_FILTER_INCOMPLETE: { message: 'Both year and month are required for date filtering', code: 'EXPENSE_DATE_FILTER_INCOMPLETE' },
 } as const;
 
 // --- Week utility functions (Sunday-Saturday cycle) ---
@@ -158,14 +166,14 @@ export async function getExpenseById(id: string, requestUserId: string, requestU
     .where(eq(expenses.id, id))
     .limit(1);
 
-  if (rows.length === 0) throw new AppError(MSG.NOT_FOUND, 404);
+  if (rows.length === 0) throw appError(MSG.NOT_FOUND, 404);
 
   const row = rows[0];
 
   // Access check
   if (requestUserRole === 'consultor') {
     if (row.createdByUserId !== requestUserId && row.consultantUserId !== requestUserId) {
-      throw new AppError(MSG.NOT_FOUND, 404);
+      throw appError(MSG.NOT_FOUND, 404);
     }
   } else if (requestUserRole === 'gestor') {
     await assertUserHasProjectAccess(requestUserId, requestUserRole, row.projectId);
@@ -202,7 +210,7 @@ export async function getMonthExpenses(
   if (consultantUserId && projectId) {
     // Consultant-scoped mode: gestor/admin viewing a specific consultant's expenses in a project
     if (userRole === 'consultor') {
-      throw new AppError('Consultores não podem visualizar despesas de outros.', 403);
+      throw appError(MSG.CONSULTANT_VIEW_FORBIDDEN, 403);
     }
     if (userRole === 'gestor') {
       // Validate gestor has access to this project
@@ -214,14 +222,14 @@ export async function getMonthExpenses(
           eq(projectAllocations.projectId, projectId),
         ))
         .limit(1);
-      if (!alloc) throw new AppError('Sem acesso a este projeto.', 403);
+      if (!alloc) throw appError(MSG.NO_PROJECT_ACCESS, 403);
     }
     conditions.push(eq(expenses.consultantUserId, consultantUserId));
     conditions.push(eq(expenses.projectId, projectId));
   } else if (consultantUserId) {
     // Consultant-scoped mode without project: all expenses for this consultant across projects
     if (userRole === 'consultor') {
-      throw new AppError('Consultores não podem visualizar despesas de outros.', 403);
+      throw appError(MSG.CONSULTANT_VIEW_FORBIDDEN, 403);
     }
     if (userRole === 'gestor') {
       const gestorAllocations = await db
@@ -318,7 +326,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
     .from(projects)
     .where(eq(projects.id, data.projectId))
     .limit(1);
-  if (!project || !project.isActive) throw new AppError(MSG.PROJECT_NOT_FOUND, 400);
+  if (!project || !project.isActive) throw appError(MSG.PROJECT_NOT_FOUND, 400);
 
   // Validar acesso do gestor ao projeto
   await assertUserHasProjectAccess(requestUserId, requestUserRole, data.projectId);
@@ -326,7 +334,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
   // V2: Validate date is in an open period
   const periodCheck = await isDateInOpenPeriod(data.projectId, data.date);
   if (!periodCheck.allowed) {
-    throw new AppError(periodCheck.reason || MSG.PERIOD_NOT_OPEN, 400);
+    throw appError(periodCheck.reason ? { message: periodCheck.reason, code: MSG.PERIOD_NOT_OPEN.code } : MSG.PERIOD_NOT_OPEN, 400);
   }
 
   // Determine consultant user id
@@ -347,7 +355,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
         eq(projectAllocations.userId, consultantUserId),
       ))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.NOT_ALLOCATED, 400);
+    if (!allocation) throw appError(MSG.NOT_ALLOCATED, 400);
   }
 
   // V2: Validate category belongs to project (projectExpenseCategories)
@@ -366,13 +374,13 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       .where(eq(projectExpenseCategories.id, data.expenseCategoryId))
       .limit(1);
 
-    if (!category || !category.isActive) throw new AppError(MSG.CATEGORY_NOT_FOUND, 400);
-    if (category.projectId !== data.projectId) throw new AppError(MSG.CATEGORY_NOT_IN_PROJECT, 400);
+    if (!category || !category.isActive) throw appError(MSG.CATEGORY_NOT_FOUND, 400);
+    if (category.projectId !== data.projectId) throw appError(MSG.CATEGORY_NOT_IN_PROJECT, 400);
     categoryData = { isKmCategory: category.isKmCategory, kmRate: category.kmRate, requiresReceipt: category.requiresReceipt };
 
     // Validate receipt is provided when category requires it
     if (category.requiresReceipt && !data.receiptFileId) {
-      throw new AppError(MSG.RECEIPT_REQUIRED, 400);
+      throw appError(MSG.RECEIPT_REQUIRED, 400);
     }
   }
 
@@ -380,7 +388,7 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
   let computedAmount = data.amount;
   let kmQuantity = data.kmQuantity ?? null;
   if (categoryData?.isKmCategory) {
-    if (!kmQuantity) throw new AppError(MSG.KM_QUANTITY_REQUIRED, 400);
+    if (!kmQuantity) throw appError(MSG.KM_QUANTITY_REQUIRED, 400);
     if (categoryData.kmRate) {
       computedAmount = (Number(kmQuantity) * Number(categoryData.kmRate)).toFixed(2);
     }
@@ -398,19 +406,19 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
       .where(eq(expenses.id, data.id))
       .limit(1);
 
-    if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!existing) throw appError(MSG.NOT_FOUND, 404);
 
     // Ownership check: creator or gestor+
     if (existing.createdByUserId !== requestUserId && !isGestorOrAdmin) {
-      throw new AppError(MSG.NOT_OWNER, 403);
+      throw appError(MSG.NOT_OWNER, 403);
     }
     if (existing.status === 'approved') {
-      throw new AppError(MSG.NOT_CREATED_OR_REJECTED, 400);
+      throw appError(MSG.NOT_CREATED_OR_REJECTED, 400);
     }
 
     // V2: Consultant cannot change reimbursement after creation
     if (requestUserRole === 'consultor' && data.requiresReimbursement !== undefined && data.requiresReimbursement !== existing.requiresReimbursement) {
-      throw new AppError(MSG.CANNOT_EDIT_REIMBURSEMENT, 400);
+      throw appError(MSG.CANNOT_EDIT_REIMBURSEMENT, 400);
     }
 
     const [updated] = await db.update(expenses).set({
@@ -479,21 +487,21 @@ export async function upsertExpense(data: UpsertExpenseInput, requestUserId: str
 
 export async function deleteExpense(id: string, requestUserId: string, requestUserRole: string) {
   const [entry] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
-  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!entry) throw appError(MSG.NOT_FOUND, 404);
 
   if (entry.createdByUserId !== requestUserId && requestUserRole !== 'gestor' && requestUserRole !== 'super_admin') {
-    throw new AppError(MSG.NOT_OWNER, 403);
+    throw appError(MSG.NOT_OWNER, 403);
   }
-  if (!['created', 'draft'].includes(entry.status)) throw new AppError(MSG.NOT_CREATED, 400);
+  if (!['created', 'draft'].includes(entry.status)) throw appError(MSG.NOT_CREATED, 400);
 
   await db.delete(expenses).where(eq(expenses.id, id));
 }
 
 export async function resubmitExpense(id: string, requestUserId: string) {
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
-  if (!expense) throw new AppError(MSG.NOT_FOUND, 404);
-  if (expense.createdByUserId !== requestUserId) throw new AppError(MSG.NOT_OWNER, 403);
-  if (expense.status !== 'rejected') throw new AppError(MSG.NOT_REJECTED, 400);
+  if (!expense) throw appError(MSG.NOT_FOUND, 404);
+  if (expense.createdByUserId !== requestUserId) throw appError(MSG.NOT_OWNER, 403);
+  if (expense.status !== 'rejected') throw appError(MSG.NOT_REJECTED, 400);
 
   const now = new Date();
   const [updated] = await db.update(expenses).set({
@@ -506,23 +514,20 @@ export async function resubmitExpense(id: string, requestUserId: string) {
 
 export async function revertExpense(id: string, requestUserId: string, requestUserRole: string) {
   if (requestUserRole !== 'gestor' && requestUserRole !== 'super_admin') {
-    throw new AppError('Apenas gestores podem reverter despesas.', 403);
+    throw appError(MSG.ONLY_GESTORS_CAN_REVERT, 403);
   }
 
   const [entry] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
-  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
-  if (entry.status !== 'approved') throw new AppError('Apenas despesas aprovadas podem ser revertidas.', 400);
-  if (entry.reimbursedAt) throw new AppError('Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', 400);
+  if (!entry) throw appError(MSG.NOT_FOUND, 404);
+  if (entry.status !== 'approved') throw appError(MSG.ONLY_APPROVED_CAN_REVERT, 400);
+  if (entry.reimbursedAt) throw appError(MSG.REIMBURSED_CANNOT_REVERT, 400);
 
   // Check if expense is linked to a payment
   const paymentLink = await expensePaymentService.checkExpensePaymentLink(id);
   let removeResult: { removed: boolean; paymentDeleted: boolean } | null = null;
   if (paymentLink.linked) {
     if (paymentLink.paymentStatus !== 'draft') {
-      throw new AppError(
-        'Despesa vinculada a um pagamento confirmado/pago. Cancele o pagamento antes de reverter.',
-        400,
-      );
+      throw appError(MSG.LINKED_PAYMENT_CONFIRMED, 400);
     }
     removeResult = await expensePaymentService.removeExpenseFromDraft(id);
   }
@@ -532,10 +537,7 @@ export async function revertExpense(id: string, requestUserId: string, requestUs
   let invoiceRemoveResult: { removed: boolean; invoiceDeleted: boolean } | null = null;
   if (invoiceLink.linked) {
     if (invoiceLink.invoiceStatus !== 'draft') {
-      throw new AppError(
-        'Despesa vinculada a uma fatura emitida/paga. Cancele a fatura antes de reverter.',
-        400,
-      );
+      throw appError(MSG.LINKED_INVOICE_ISSUED, 400);
     }
     invoiceRemoveResult = await expenseInvoiceService.removeExpenseFromInvoiceDraft(id);
   }
@@ -575,7 +577,7 @@ export async function listPendingApprovals(params: PaginationParams & { consulta
   if (consultantId) conditions.push(eq(expenses.consultantUserId, consultantId));
   if (projectId) conditions.push(eq(expenses.projectId, projectId));
   if ((year && !month) || (!year && month)) {
-    throw new AppError('Both year and month are required for date filtering', 400);
+    throw appError(MSG.DATE_FILTER_INCOMPLETE, 400);
   }
   if (year && month) {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -641,7 +643,7 @@ export async function approveExpenses(
     .where(inArray(expenses.id, ids));
 
   const notPending = entries.filter(e => !['created', 'submitted'].includes(e.status));
-  if (notPending.length > 0) throw new AppError(MSG.NOT_PENDING, 400);
+  if (notPending.length > 0) throw appError(MSG.NOT_PENDING, 400);
 
   const now = new Date();
   await db.transaction(async (tx) => {
@@ -700,11 +702,11 @@ export async function approveExpenses(
 }
 
 export async function rejectExpense(expenseId: string, rejectedByUserId: string, comment: string) {
-  if (!comment.trim()) throw new AppError(MSG.COMMENT_REQUIRED, 400);
+  if (!comment.trim()) throw appError(MSG.COMMENT_REQUIRED, 400);
 
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
-  if (!expense) throw new AppError(MSG.NOT_FOUND, 404);
-  if (!['created', 'submitted'].includes(expense.status)) throw new AppError(MSG.NOT_PENDING, 400);
+  if (!expense) throw appError(MSG.NOT_FOUND, 404);
+  if (!['created', 'submitted'].includes(expense.status)) throw appError(MSG.NOT_PENDING, 400);
 
   await db.transaction(async (tx) => {
     await tx.update(expenses).set({
@@ -802,7 +804,7 @@ export async function markAsReimbursed(ids: string[], reimbursedByUserId: string
     .where(inArray(expenses.id, ids));
 
   const invalid = entries.filter(e => e.status !== 'approved' || !e.requiresReimbursement || !!e.reimbursedAt);
-  if (invalid.length > 0) throw new AppError(MSG.NOT_APPROVED_REIMBURSABLE, 400);
+  if (invalid.length > 0) throw appError(MSG.NOT_APPROVED_REIMBURSABLE, 400);
 
   const now = new Date();
   await db.update(expenses).set({
@@ -816,8 +818,8 @@ export async function markAsReimbursed(ids: string[], reimbursedByUserId: string
 
 export async function unmarkReimbursement(id: string) {
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
-  if (!expense) throw new AppError(MSG.NOT_FOUND, 404);
-  if (!expense.reimbursedAt) throw new AppError(MSG.NOT_REIMBURSED, 400);
+  if (!expense) throw appError(MSG.NOT_FOUND, 404);
+  if (!expense.reimbursedAt) throw appError(MSG.NOT_REIMBURSED, 400);
 
   const [updated] = await db.update(expenses).set({
     reimbursedAt: null,

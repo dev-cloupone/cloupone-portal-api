@@ -4,8 +4,12 @@ import * as invoiceService from '../services/invoice.service';
 import * as installmentService from '../services/installment.service';
 import { generateInvoicePdf } from '../services/invoice-pdf.service';
 import { paginationSchema } from '../utils/pagination';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { V } from '../utils/validation-messages';
+
+const MSG = {
+  NOT_ISSUED: { message: 'Fatura ainda não foi emitida. Gere o PDF após emitir.', code: 'INVOICE_NOT_ISSUED' },
+} as const;
 
 const idSchema = z.string().uuid();
 
@@ -134,7 +138,7 @@ const getPdf: RequestHandler = async (req, res, next) => {
     const bankAccountId = z.string().uuid().parse(req.query.bankAccountId);
     const invoice = await invoiceService.getById(id, req.userId!, req.userRole!, req.userClientId);
     if (!invoice.invoiceNumber) {
-      throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
+      throw appError(MSG.NOT_ISSUED, 400);
     }
     const buffer = await generateInvoicePdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');

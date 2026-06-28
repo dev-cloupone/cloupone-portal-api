@@ -1,16 +1,17 @@
 import { eq, and, between, asc, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { projectExpensePeriods, expenses } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 
 const MSG = {
-  NOT_FOUND: 'Período não encontrado.',
-  NOT_OPEN: 'Período não está aberto.',
-  NOT_CLOSED: 'Período não está fechado.',
-  ALREADY_EXISTS: 'Já existe um período para esta semana neste projeto.',
-  NOT_SUNDAY: 'A data de início deve ser um domingo.',
-  CUSTOM_DAY_OUT_OF_RANGE: 'Um ou mais dias customizados estão fora do intervalo da semana.',
-  HAS_PENDING: 'Existem despesas pendentes de aprovação neste período. Resolva antes de fechar.',
+  NOT_FOUND: { message: 'Período não encontrado.', code: 'EXPENSE_PERIOD_NOT_FOUND' },
+  NOT_OPEN: { message: 'Período não está aberto.', code: 'EXPENSE_PERIOD_NOT_OPEN' },
+  NOT_CLOSED: { message: 'Período não está fechado.', code: 'EXPENSE_PERIOD_NOT_CLOSED' },
+  ALREADY_EXISTS: { message: 'Já existe um período para esta semana neste projeto.', code: 'EXPENSE_PERIOD_ALREADY_EXISTS' },
+  NOT_SUNDAY: { message: 'A data de início deve ser um domingo.', code: 'EXPENSE_PERIOD_NOT_SUNDAY' },
+  CUSTOM_DAY_OUT_OF_RANGE: { message: 'Um ou mais dias customizados estão fora do intervalo da semana.', code: 'EXPENSE_PERIOD_CUSTOM_DAY_OUT_OF_RANGE' },
+  HAS_PENDING: { message: 'Existem despesas pendentes de aprovação neste período. Resolva antes de fechar.', code: 'EXPENSE_PERIOD_HAS_PENDING' },
+  EXPENSES_ON_REMOVED_DAYS: { message: 'Existem despesas lançadas em dias que seriam removidos. Exclua as despesas antes de remover esses dias.', code: 'EXPENSE_PERIOD_EXPENSES_ON_REMOVED_DAYS' },
 } as const;
 
 function getWeekEnd(weekStart: string): string {
@@ -67,7 +68,7 @@ export async function openPeriod(
   openedBy: string,
 ) {
   if (!isSunday(data.weekStart)) {
-    throw new AppError(MSG.NOT_SUNDAY, 400);
+    throw appError(MSG.NOT_SUNDAY, 400);
   }
 
   const weekEnd = getWeekEnd(data.weekStart);
@@ -80,13 +81,13 @@ export async function openPeriod(
       eq(projectExpensePeriods.weekStart, data.weekStart),
     ))
     .limit(1);
-  if (existing) throw new AppError(MSG.ALREADY_EXISTS, 409);
+  if (existing) throw appError(MSG.ALREADY_EXISTS, 409);
 
   // Validate customDays within range
   if (data.customDays?.length) {
     for (const day of data.customDays) {
       if (day < data.weekStart || day > weekEnd) {
-        throw new AppError(MSG.CUSTOM_DAY_OUT_OF_RANGE, 400);
+        throw appError(MSG.CUSTOM_DAY_OUT_OF_RANGE, 400);
       }
     }
   }
@@ -109,9 +110,9 @@ export async function closePeriod(periodId: string, projectId: string, closedBy:
     .where(eq(projectExpensePeriods.id, periodId))
     .limit(1);
 
-  if (!period) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.status !== 'open') throw new AppError(MSG.NOT_OPEN, 400);
+  if (!period) throw appError(MSG.NOT_FOUND, 404);
+  if (period.projectId !== projectId) throw appError(MSG.NOT_FOUND, 404);
+  if (period.status !== 'open') throw appError(MSG.NOT_OPEN, 400);
 
   // Check for draft expenses in this period
   const [draftCount] = await db
@@ -124,7 +125,7 @@ export async function closePeriod(periodId: string, projectId: string, closedBy:
     ));
 
   if (draftCount && draftCount.count > 0) {
-    throw new AppError(MSG.HAS_PENDING, 400);
+    throw appError(MSG.HAS_PENDING, 400);
   }
 
   const [updated] = await db.update(projectExpensePeriods)
@@ -146,9 +147,9 @@ export async function reopenPeriod(periodId: string, projectId: string, reopened
     .where(eq(projectExpensePeriods.id, periodId))
     .limit(1);
 
-  if (!period) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.status !== 'closed') throw new AppError(MSG.NOT_CLOSED, 400);
+  if (!period) throw appError(MSG.NOT_FOUND, 404);
+  if (period.projectId !== projectId) throw appError(MSG.NOT_FOUND, 404);
+  if (period.status !== 'closed') throw appError(MSG.NOT_CLOSED, 400);
 
   const [updated] = await db.update(projectExpensePeriods)
     .set({
@@ -174,9 +175,9 @@ export async function updatePeriodDays(
     .where(eq(projectExpensePeriods.id, periodId))
     .limit(1);
 
-  if (!period) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
-  if (period.status !== 'open') throw new AppError(MSG.NOT_OPEN, 400);
+  if (!period) throw appError(MSG.NOT_FOUND, 404);
+  if (period.projectId !== projectId) throw appError(MSG.NOT_FOUND, 404);
+  if (period.status !== 'open') throw appError(MSG.NOT_OPEN, 400);
 
   const weekDays = getWeekDays(period.weekStart);
   const weekDaysSet = new Set(weekDays);
@@ -193,7 +194,7 @@ export async function updatePeriodDays(
   if (normalizedDays?.length) {
     for (const day of normalizedDays) {
       if (!weekDaysSet.has(day)) {
-        throw new AppError(MSG.CUSTOM_DAY_OUT_OF_RANGE, 400);
+        throw appError(MSG.CUSTOM_DAY_OUT_OF_RANGE, 400);
       }
     }
   }
@@ -217,10 +218,7 @@ export async function updatePeriodDays(
       ));
 
     if (expenseCount && expenseCount.count > 0) {
-      throw new AppError(
-        'Existem despesas lançadas em dias que seriam removidos. Exclua as despesas antes de remover esses dias.',
-        400,
-      );
+      throw appError(MSG.EXPENSES_ON_REMOVED_DAYS, 400);
     }
   }
 

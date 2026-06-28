@@ -5,7 +5,7 @@ import { db } from '../db';
 import { users, passwordResetTokens, refreshTokens } from '../db/schema';
 import { getSettingsMap } from './platform-settings.service';
 import { getEmailProvider } from '../providers/email';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { PASSWORD_RESET } from '../utils/error-messages';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
@@ -93,7 +93,7 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   });
 
   if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
-    throw new AppError(PASSWORD_RESET.TOKEN_INVALID, 400);
+    throw appError(PASSWORD_RESET.TOKEN_INVALID, 400);
   }
 
   const user = await db.query.users.findFirst({
@@ -101,12 +101,12 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   });
 
   if (!user || !user.isActive) {
-    throw new AppError(PASSWORD_RESET.TOKEN_INVALID, 400);
+    throw appError(PASSWORD_RESET.TOKEN_INVALID, 400);
   }
 
   const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
   if (isSamePassword) {
-    throw new AppError(PASSWORD_RESET.SAME_PASSWORD, 400);
+    throw appError(PASSWORD_RESET.SAME_PASSWORD, 400);
   }
 
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);

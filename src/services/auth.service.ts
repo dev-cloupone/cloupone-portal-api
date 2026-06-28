@@ -6,7 +6,7 @@ import { db } from '../db';
 import { users, refreshTokens } from '../db/schema';
 import { env } from '../config/env';
 import type { JwtPayload, TokenPair } from '../types/auth.types';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { AUTH } from '../utils/error-messages';
 import { getSettingsMap } from './platform-settings.service';
 import { getEmailProvider } from '../providers/email';
@@ -58,7 +58,7 @@ export async function login(
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     }).catch((err) => logger.error({ err }, 'Failed to record login attempt'));
-    throw new AppError(AUTH.INVALID_CREDENTIALS, 401);
+    throw appError(AUTH.INVALID_CREDENTIALS, 401);
   }
 
   const passwordValid = await bcrypt.compare(password, user.passwordHash);
@@ -69,7 +69,7 @@ export async function login(
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     }).catch((err) => logger.error({ err }, 'Failed to record login attempt'));
-    throw new AppError(AUTH.INVALID_CREDENTIALS, 401);
+    throw appError(AUTH.INVALID_CREDENTIALS, 401);
   }
 
   const { accessToken, refreshTokenValue } = generateTokens(user);
@@ -104,7 +104,7 @@ export async function refresh(refreshToken: string): Promise<TokenPair> {
   });
 
   if (!storedToken || storedToken.expiresAt < new Date()) {
-    throw new AppError(AUTH.TOKEN_INVALID, 401);
+    throw appError(AUTH.TOKEN_INVALID, 401);
   }
 
   await db.update(refreshTokens)
@@ -116,7 +116,7 @@ export async function refresh(refreshToken: string): Promise<TokenPair> {
   });
 
   if (!user || !user.isActive) {
-    throw new AppError(AUTH.USER_INACTIVE, 401);
+    throw appError(AUTH.USER_INACTIVE, 401);
   }
 
   const { accessToken, refreshTokenValue } = generateTokens(user);
@@ -143,7 +143,7 @@ export async function getMe(userId: string) {
   });
 
   if (!user) {
-    throw new AppError(AUTH.USER_INACTIVE, 404);
+    throw appError(AUTH.USER_INACTIVE, 404);
   }
 
   return {
@@ -166,7 +166,7 @@ export async function updateMe(userId: string, data: { name?: string; email?: st
     .returning();
 
   if (!updated) {
-    throw new AppError(AUTH.USER_INACTIVE, 404);
+    throw appError(AUTH.USER_INACTIVE, 404);
   }
 
   return {
@@ -186,12 +186,12 @@ export async function changePassword(userId: string, currentPassword: string, ne
   });
 
   if (!user) {
-    throw new AppError(AUTH.USER_INACTIVE, 404);
+    throw appError(AUTH.USER_INACTIVE, 404);
   }
 
   const passwordValid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!passwordValid) {
-    throw new AppError(AUTH.INVALID_CREDENTIALS, 401);
+    throw appError(AUTH.INVALID_CREDENTIALS, 401);
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 12);

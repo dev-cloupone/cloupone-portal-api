@@ -17,7 +17,7 @@ const forgotPassword: RequestHandler = async (req, res, next) => {
   try {
     const { email } = forgotPasswordSchema.parse(req.body);
     await passwordResetService.requestPasswordReset(email);
-    res.json({ message: PASSWORD_RESET.EMAIL_SENT });
+    res.json({ message: PASSWORD_RESET.EMAIL_SENT.message });
   } catch (err) {
     next(err);
   }
@@ -27,7 +27,7 @@ const resetPassword: RequestHandler = async (req, res, next) => {
   try {
     const { token, password } = resetPasswordSchema.parse(req.body);
     await passwordResetService.resetPassword(token, password);
-    res.json({ message: PASSWORD_RESET.PASSWORD_CHANGED });
+    res.json({ message: PASSWORD_RESET.PASSWORD_CHANGED.message });
   } catch (err) {
     next(err);
   }

@@ -1,10 +1,10 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { projectAllocations, projects } from '../db/schema';
-import { AppError } from './app-error';
+import { appError } from './app-error';
 
 const MSG = {
-  NO_ACCESS: 'Você não tem acesso a este projeto.',
+  NO_ACCESS: { message: 'Você não tem acesso a este projeto.', code: 'PROJECT_ACCESS_DENIED' },
 } as const;
 
 /**
@@ -31,16 +31,16 @@ export async function assertUserHasProjectAccess(
         eq(projectAllocations.userId, userId),
       ))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.NO_ACCESS, 403);
+    if (!allocation) throw appError(MSG.NO_ACCESS, 403);
     return;
   }
 
   // role 'client' — verifica clientId
-  if (!userClientId) throw new AppError(MSG.NO_ACCESS, 403);
+  if (!userClientId) throw appError(MSG.NO_ACCESS, 403);
   const [project] = await db
     .select({ clientId: projects.clientId })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1);
-  if (!project || project.clientId !== userClientId) throw new AppError(MSG.NO_ACCESS, 403);
+  if (!project || project.clientId !== userClientId) throw appError(MSG.NO_ACCESS, 403);
 }

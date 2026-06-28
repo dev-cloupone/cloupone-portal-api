@@ -1,15 +1,15 @@
 import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { projects, clients, projectAllocations, users, consultantProfiles } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 
 const PROJECT = {
-  NOT_FOUND: 'Projeto não encontrado.',
-  CLIENT_NOT_FOUND: 'Cliente não encontrado.',
-  ALLOCATION_EXISTS: 'Consultor já está alocado neste projeto.',
-  ALLOCATION_NOT_FOUND: 'Alocação não encontrada.',
+  NOT_FOUND: { message: 'Projeto não encontrado.', code: 'PROJECT_NOT_FOUND' },
+  CLIENT_NOT_FOUND: { message: 'Cliente não encontrado.', code: 'PROJECT_CLIENT_NOT_FOUND' },
+  ALLOCATION_EXISTS: { message: 'Consultor já está alocado neste projeto.', code: 'PROJECT_ALLOCATION_EXISTS' },
+  ALLOCATION_NOT_FOUND: { message: 'Alocação não encontrada.', code: 'PROJECT_ALLOCATION_NOT_FOUND' },
 } as const;
 
 export async function listProjects(params: PaginationParams & {
@@ -124,7 +124,7 @@ export async function getProjectById(id: string) {
     .where(eq(projects.id, id))
     .limit(1);
 
-  if (!project) throw new AppError(PROJECT.NOT_FOUND, 404);
+  if (!project) throw appError(PROJECT.NOT_FOUND, 404);
   return project;
 }
 
@@ -141,7 +141,7 @@ export async function createProject(data: {
   endDate?: string;
 }) {
   const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, data.clientId)).limit(1);
-  if (!client) throw new AppError(PROJECT.CLIENT_NOT_FOUND, 404);
+  if (!client) throw appError(PROJECT.CLIENT_NOT_FOUND, 404);
 
   const { startDate, endDate, billingRate, fixedPriceTotal, ...rest } = data;
   const [created] = await db.insert(projects).values({
@@ -168,7 +168,7 @@ export async function updateProject(id: string, data: Partial<{
   endDate: string;
 }>) {
   const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id)).limit(1);
-  if (!existing) throw new AppError(PROJECT.NOT_FOUND, 404);
+  if (!existing) throw appError(PROJECT.NOT_FOUND, 404);
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) updateData.name = data.name;
@@ -189,7 +189,7 @@ export async function updateProject(id: string, data: Partial<{
 
 export async function deactivateProject(id: string) {
   const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, id)).limit(1);
-  if (!existing) throw new AppError(PROJECT.NOT_FOUND, 404);
+  if (!existing) throw appError(PROJECT.NOT_FOUND, 404);
 
   const [updated] = await db.update(projects).set({ isActive: false, updatedAt: new Date() }).where(eq(projects.id, id)).returning();
   return updated;
@@ -230,7 +230,7 @@ export async function addAllocation(projectId: string, userId: string) {
     .onConflictDoNothing()
     .returning();
 
-  if (result.length === 0) throw new AppError(PROJECT.ALLOCATION_EXISTS, 409);
+  if (result.length === 0) throw appError(PROJECT.ALLOCATION_EXISTS, 409);
 
   return result[0];
 }
@@ -241,7 +241,7 @@ export async function updateAllocationRates(projectId: string, userId: string, d
     .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
     .limit(1);
 
-  if (!existing) throw new AppError(PROJECT.ALLOCATION_NOT_FOUND, 404);
+  if (!existing) throw appError(PROJECT.ALLOCATION_NOT_FOUND, 404);
 
   const [updated] = await db.update(projectAllocations)
     .set({ costRate: data.costRate, billingRate: data.billingRate, updatedAt: new Date() })
@@ -257,7 +257,7 @@ export async function removeAllocation(projectId: string, userId: string) {
     .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
     .limit(1);
 
-  if (!existing) throw new AppError(PROJECT.ALLOCATION_NOT_FOUND, 404);
+  if (!existing) throw appError(PROJECT.ALLOCATION_NOT_FOUND, 404);
 
   await db.delete(projectAllocations)
     .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)));

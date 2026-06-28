@@ -5,7 +5,12 @@ import { db } from '../db';
 import { files } from '../db/schema';
 import { getS3Client, isR2Configured } from '../config/s3';
 import { getSetting } from './platform-settings.service';
-import { AppError } from '../utils/app-error';
+import { AppError, appError } from '../utils/app-error';
+
+const MSG = {
+  FILE_TYPE_NOT_ALLOWED: { message: 'Tipo de arquivo não permitido.', code: 'FILE_TYPE_NOT_ALLOWED' },
+  FILE_NOT_FOUND: { message: 'Arquivo não encontrado.', code: 'FILE_NOT_FOUND' },
+} as const;
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -18,11 +23,11 @@ export async function uploadFile(
   const allowedTypes = (await getSetting('allowed_file_types') || 'image/jpeg,image/png,image/webp,application/pdf').split(',');
 
   if (file.size > maxSizeMb * 1024 * 1024) {
-    throw new AppError(`Arquivo excede o tamanho máximo de ${maxSizeMb}MB.`, 400);
+    throw new AppError(`Arquivo excede o tamanho máximo de ${maxSizeMb}MB.`, 400, 'FILE_TOO_LARGE');
   }
 
   if (!allowedTypes.includes(file.mimetype)) {
-    throw new AppError('Tipo de arquivo não permitido.', 400);
+    throw appError(MSG.FILE_TYPE_NOT_ALLOWED, 400);
   }
 
   const multerS3File = file as Express.Multer.File & { key?: string; location?: string };
@@ -74,7 +79,7 @@ export async function getFileById(fileId: string) {
 
 export async function getPresignedUrl(fileId: string): Promise<string> {
   const record = await getFileById(fileId);
-  if (!record) throw new AppError('Arquivo não encontrado.', 404);
+  if (!record) throw appError(MSG.FILE_NOT_FOUND, 404);
 
   if (!isR2Configured()) {
     return record.url;

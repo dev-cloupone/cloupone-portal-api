@@ -1,16 +1,16 @@
 import { eq, and, asc, sql, count as drizzleCount, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { projectInstallments, projects, clients } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { DbTransaction } from '../utils/invoice-utils';
 
 type DbOrTx = typeof db | DbTransaction;
 
 const MSG = {
-  NOT_FOUND: 'Parcela não encontrada.',
-  NOT_FIXED_PRICE: 'Parcelas só podem ser gerenciadas em projetos de valor fixo.',
-  NOT_PENDING: 'Apenas parcelas pendentes podem ser editadas ou excluídas.',
-  PROJECT_NOT_FOUND: 'Projeto não encontrado.',
+  NOT_FOUND: { message: 'Parcela não encontrada.', code: 'INSTALLMENT_NOT_FOUND' },
+  NOT_FIXED_PRICE: { message: 'Parcelas só podem ser gerenciadas em projetos de valor fixo.', code: 'INSTALLMENT_NOT_FIXED_PRICE' },
+  NOT_PENDING: { message: 'Apenas parcelas pendentes podem ser editadas ou excluídas.', code: 'INSTALLMENT_NOT_PENDING' },
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'INSTALLMENT_PROJECT_NOT_FOUND' },
 } as const;
 
 async function assertFixedPriceProject(projectId: string, tx: DbOrTx = db) {
@@ -19,8 +19,8 @@ async function assertFixedPriceProject(projectId: string, tx: DbOrTx = db) {
     .where(eq(projects.id, projectId))
     .limit(1);
 
-  if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
-  if (project.billingType !== 'fixed_price') throw new AppError(MSG.NOT_FIXED_PRICE, 400);
+  if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
+  if (project.billingType !== 'fixed_price') throw appError(MSG.NOT_FIXED_PRICE, 400);
 }
 
 export async function listByProject(projectId: string) {
@@ -98,9 +98,9 @@ export async function update(projectId: string, id: string, data: Partial<{ desc
     .where(eq(projectInstallments.id, id))
     .limit(1);
 
-  if (!installment) throw new AppError(MSG.NOT_FOUND, 404);
-  if (installment.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
-  if (installment.status !== 'pending') throw new AppError(MSG.NOT_PENDING, 400);
+  if (!installment) throw appError(MSG.NOT_FOUND, 404);
+  if (installment.projectId !== projectId) throw appError(MSG.NOT_FOUND, 404);
+  if (installment.status !== 'pending') throw appError(MSG.NOT_PENDING, 400);
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (data.description !== undefined) updateData.description = data.description;
@@ -122,9 +122,9 @@ export async function remove(projectId: string, id: string) {
       .where(eq(projectInstallments.id, id))
       .limit(1);
 
-    if (!installment) throw new AppError(MSG.NOT_FOUND, 404);
-    if (installment.projectId !== projectId) throw new AppError(MSG.NOT_FOUND, 404);
-    if (installment.status !== 'pending') throw new AppError(MSG.NOT_PENDING, 400);
+    if (!installment) throw appError(MSG.NOT_FOUND, 404);
+    if (installment.projectId !== projectId) throw appError(MSG.NOT_FOUND, 404);
+    if (installment.status !== 'pending') throw appError(MSG.NOT_PENDING, 400);
 
     await tx.delete(projectInstallments).where(eq(projectInstallments.id, id));
 

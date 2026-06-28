@@ -1,11 +1,11 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { expenseTemplates, expenseCategoryTemplates } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 
 const MSG = {
-  NOT_FOUND: 'Template de despesa não encontrado.',
-  FORBIDDEN: 'Você não tem permissão para alterar este template.',
+  NOT_FOUND: { message: 'Template de despesa não encontrado.', code: 'EXPENSE_TEMPLATE_NOT_FOUND' },
+  FORBIDDEN: { message: 'Você não tem permissão para alterar este template.', code: 'EXPENSE_TEMPLATE_FORBIDDEN' },
 } as const;
 
 export async function listTemplates(userId: string) {
@@ -54,8 +54,8 @@ export async function updateTemplate(id: string, userId: string, data: Partial<{
     .from(expenseTemplates)
     .where(eq(expenseTemplates.id, id))
     .limit(1);
-  if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
-  if (existing.userId !== userId) throw new AppError(MSG.FORBIDDEN, 403);
+  if (!existing) throw appError(MSG.NOT_FOUND, 404);
+  if (existing.userId !== userId) throw appError(MSG.FORBIDDEN, 403);
 
   const [updated] = await db.update(expenseTemplates)
     .set({ ...data, updatedAt: new Date() })
@@ -69,8 +69,8 @@ export async function deleteTemplate(id: string, userId: string) {
     .from(expenseTemplates)
     .where(eq(expenseTemplates.id, id))
     .limit(1);
-  if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
-  if (existing.userId !== userId) throw new AppError(MSG.FORBIDDEN, 403);
+  if (!existing) throw appError(MSG.NOT_FOUND, 404);
+  if (existing.userId !== userId) throw appError(MSG.FORBIDDEN, 403);
 
   await db.delete(expenseTemplates).where(eq(expenseTemplates.id, id));
 }

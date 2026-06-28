@@ -64,7 +64,7 @@ const listProjects: RequestHandler = async (req, res, next) => {
     const userId = userIdSchema.parse(req.params.userId);
     // Consultors can only list their own projects; admins/gestores can list any
     if (req.userRole === 'consultor' && req.userId !== userId) {
-      return next(new AppError('Acesso negado.', 403));
+      return next(new AppError('Acesso negado.', 403, 'MIDDLEWARE_INSUFFICIENT_PERMISSIONS'));
     }
     const data = await consultantService.listConsultantProjects(userId);
     res.json({ data });

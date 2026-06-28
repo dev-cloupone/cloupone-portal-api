@@ -1,10 +1,19 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import * as importService from '../services/time-entry-import.service';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { db } from '../db';
 import { projectAllocations } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
+
+const MSG = {
+  FILE_REQUIRED: { message: 'Arquivo é obrigatório.', code: 'FILE_REQUIRED' },
+  INVALID_FORMAT: { message: 'Formato inválido. Use .xlsx ou .csv.', code: 'IMPORT_INVALID_FORMAT' },
+  CONSULTANT_REQUIRED: { message: 'Consultor é obrigatório.', code: 'CONSULTANT_REQUIRED' },
+  SELF_IMPORT_ONLY: { message: 'Consultor só pode importar para si mesmo.', code: 'IMPORT_SELF_ONLY' },
+  NO_PERMISSION: { message: 'Sem permissão.', code: 'IMPORT_NO_PERMISSION' },
+  NO_SHARED_PROJECTS: { message: 'Consultor não compartilha projetos com você.', code: 'IMPORT_NO_SHARED_PROJECTS' },
+} as const;
 
 const confirmSchema = z.object({
   consultantId: z.string().uuid(),
@@ -27,7 +36,7 @@ async function validateGestorPermission(gestorId: string, consultantId: string):
     .where(eq(projectAllocations.userId, gestorId));
 
   if (gestorProjects.length === 0) {
-    throw new AppError('Consultor não compartilha projetos com você.', 403);
+    throw appError(MSG.NO_SHARED_PROJECTS, 403);
   }
 
   const gestorProjectIds = gestorProjects.map(p => p.projectId);
@@ -38,18 +47,18 @@ async function validateGestorPermission(gestorId: string, consultantId: string):
 
   const commonProject = consultantProjects.some(cp => gestorProjectIds.includes(cp.projectId));
   if (!commonProject) {
-    throw new AppError('Consultor não compartilha projetos com você.', 403);
+    throw appError(MSG.NO_SHARED_PROJECTS, 403);
   }
 }
 
 const validate: RequestHandler = async (req, res, next) => {
   try {
-    if (!req.file) throw new AppError('Arquivo é obrigatório.', 400);
+    if (!req.file) throw appError(MSG.FILE_REQUIRED, 400);
 
     const filename = req.file.originalname;
     const ext = filename.split('.').pop()?.toLowerCase();
     if (!ext || !['xlsx', 'csv'].includes(ext)) {
-      throw new AppError('Formato inválido. Use .xlsx ou .csv.', 400);
+      throw appError(MSG.INVALID_FORMAT, 400);
     }
 
     // consultantId: from body (admin/gestor) or from token (consultor)
@@ -58,15 +67,15 @@ const validate: RequestHandler = async (req, res, next) => {
       consultantId = req.userId;
     }
     if (!consultantId) {
-      throw new AppError('Consultor é obrigatório.', 400);
+      throw appError(MSG.CONSULTANT_REQUIRED, 400);
     }
 
     // Permission checks
     if (req.userRole === 'consultor' && consultantId !== req.userId) {
-      throw new AppError('Consultor só pode importar para si mesmo.', 403);
+      throw appError(MSG.SELF_IMPORT_ONLY, 403);
     }
     if (req.userRole === 'client') {
-      throw new AppError('Sem permissão.', 403);
+      throw appError(MSG.NO_PERMISSION, 403);
     }
     if (req.userRole === 'gestor') {
       await validateGestorPermission(req.userId!, consultantId);
@@ -90,10 +99,10 @@ const confirm: RequestHandler = async (req, res, next) => {
     const data = confirmSchema.parse(req.body);
 
     if (req.userRole === 'consultor' && data.consultantId !== req.userId) {
-      throw new AppError('Consultor só pode importar para si mesmo.', 403);
+      throw appError(MSG.SELF_IMPORT_ONLY, 403);
     }
     if (req.userRole === 'client') {
-      throw new AppError('Sem permissão.', 403);
+      throw appError(MSG.NO_PERMISSION, 403);
     }
     if (req.userRole === 'gestor') {
       await validateGestorPermission(req.userId!, data.consultantId);

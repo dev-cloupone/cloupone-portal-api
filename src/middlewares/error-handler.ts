@@ -19,8 +19,8 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
       message: issue.message,
     }));
     res.status(400).json({
-      error: GENERIC.VALIDATION,
-      code: 'VALIDATION_ERROR',
+      error: GENERIC.VALIDATION.message,
+      code: GENERIC.VALIDATION.code,
       fields,
     });
     return;
@@ -28,5 +28,5 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 
   logger.error({ err, status: 500 }, 'Unhandled error');
 
-  res.status(500).json({ error: GENERIC.INTERNAL });
+  res.status(500).json({ error: GENERIC.INTERNAL.message, code: GENERIC.INTERNAL.code });
 };
