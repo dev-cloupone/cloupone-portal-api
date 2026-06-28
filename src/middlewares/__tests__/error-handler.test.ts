@@ -57,7 +57,7 @@ describe('errorHandler', () => {
     errorHandler(zodErr, req, res, next)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'VALIDATION_ERROR',
+      code: 'GENERIC_VALIDATION',
       fields: [{ field: 'email', message: 'Required' }],
     }))
   })

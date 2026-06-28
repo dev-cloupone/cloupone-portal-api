@@ -6,8 +6,15 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import * as invoiceService from '../services/expense-invoice.service';
 import { generateInvoiceExpensesPdf } from '../services/invoice-pdf.service';
 import { paginationSchema } from '../utils/pagination';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { getS3Client, isR2Configured } from '../config/s3';
+
+const MSG = {
+  NOT_ISSUED: { message: 'Fatura ainda não foi emitida. Gere o PDF após emitir.', code: 'INVOICE_NOT_ISSUED' },
+  STORAGE_NOT_CONFIGURED: { message: 'Storage não configurado.', code: 'STORAGE_NOT_CONFIGURED' },
+  ZIP_ERROR: { message: 'Erro ao gerar arquivo ZIP.', code: 'ZIP_GENERATION_ERROR' },
+  NO_RECEIPTS: { message: 'Não foi possível recuperar nenhum comprovante do storage.', code: 'NO_RECEIPTS_FOUND' },
+} as const;
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -129,7 +136,7 @@ const getPdf: RequestHandler = async (req, res, next) => {
     const bankAccountId = z.string().uuid().parse(req.query.bankAccountId);
     const invoice = await invoiceService.getById(id, req.userId!, req.userRole!, req.userClientId);
     if (!invoice.invoiceNumber) {
-      throw new AppError('Fatura ainda não foi emitida. Gere o PDF após emitir.', 400);
+      throw appError(MSG.NOT_ISSUED, 400);
     }
     const buffer = await generateInvoiceExpensesPdf(id, bankAccountId);
     res.setHeader('Content-Type', 'application/pdf');
@@ -180,7 +187,7 @@ const getReceiptsZip: RequestHandler = async (req, res, next) => {
     const { invoice, files: receiptFiles, seqMap } = await invoiceService.getReceiptFiles(id);
 
     if (!isR2Configured()) {
-      throw new AppError('Storage não configurado.', 500);
+      throw appError(MSG.STORAGE_NOT_CONFIGURED, 500);
     }
 
     const zipName = `${sanitizeFilename(invoice.projectName)}_${formatDateBr(invoice.periodStart)}-a-${formatDateBr(invoice.periodEnd)}_comprovantes.zip`;
@@ -194,7 +201,7 @@ const getReceiptsZip: RequestHandler = async (req, res, next) => {
     archive.on('error', (err: Error) => {
       logger.error({ err, invoiceId: id }, 'Error creating receipts ZIP');
       if (!res.headersSent) {
-        next(new AppError('Erro ao gerar arquivo ZIP.', 500));
+        next(appError(MSG.ZIP_ERROR, 500));
       }
     });
 
@@ -235,7 +242,7 @@ const getReceiptsZip: RequestHandler = async (req, res, next) => {
 
     if (addedCount === 0) {
       archive.abort();
-      throw new AppError('Não foi possível recuperar nenhum comprovante do storage.', 500);
+      throw appError(MSG.NO_RECEIPTS, 500);
     }
 
     await archive.finalize();

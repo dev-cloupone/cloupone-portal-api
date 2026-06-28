@@ -11,28 +11,29 @@ import {
   users,
   files,
 } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { getNextInvoiceNumber } from '../utils/invoice-utils';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 
 const MSG = {
-  NOT_FOUND: 'Fatura de despesas não encontrada.',
-  INVOICE_EXISTS: 'Já existe uma fatura ativa para este projeto/período.',
-  NOT_DRAFT: 'Apenas faturas em rascunho podem ser editadas.',
-  NOT_DRAFT_ISSUE: 'Apenas faturas em rascunho podem ser emitidas.',
-  NOT_ISSUED: 'Apenas faturas emitidas podem ser marcadas como pagas.',
-  ALREADY_CANCELLED: 'Esta fatura já está cancelada.',
-  NOT_DRAFT_DELETE: 'Apenas faturas em rascunho podem ser excluídas.',
-  NOT_ISSUED_REVERT: 'Apenas faturas emitidas podem ser revertidas para rascunho.',
-  NOT_PAID_REVERT: 'Apenas faturas pagas podem ser revertidas para emitida.',
-  DRAFT_EXISTS_REVERT: 'Já existe um rascunho para este projeto/período. Exclua ou emita o rascunho existente antes de reverter.',
-  ACCESS_DENIED: 'Você não tem acesso a esta fatura.',
-  NO_EXPENSES: 'Nenhuma despesa aprovada encontrada para este período.',
-  NO_RECEIPTS: 'Nenhum comprovante encontrado para os itens desta fatura.',
-  PERIOD_NOT_FOUND: 'Período não encontrado.',
-  ITEM_NOT_FOUND: 'Item não encontrado nesta fatura.',
-  NOT_ISSUED_RECEIPTS: 'Fatura ainda não foi emitida.',
+  NOT_FOUND: { message: 'Fatura de despesas não encontrada.', code: 'EXPENSE_INVOICE_NOT_FOUND' },
+  INVOICE_EXISTS: { message: 'Já existe uma fatura ativa para este projeto/período.', code: 'EXPENSE_INVOICE_EXISTS' },
+  NOT_DRAFT: { message: 'Apenas faturas em rascunho podem ser editadas.', code: 'EXPENSE_INVOICE_NOT_DRAFT' },
+  NOT_DRAFT_ISSUE: { message: 'Apenas faturas em rascunho podem ser emitidas.', code: 'EXPENSE_INVOICE_NOT_DRAFT_ISSUE' },
+  NOT_ISSUED: { message: 'Apenas faturas emitidas podem ser marcadas como pagas.', code: 'EXPENSE_INVOICE_NOT_ISSUED' },
+  ALREADY_CANCELLED: { message: 'Esta fatura já está cancelada.', code: 'EXPENSE_INVOICE_ALREADY_CANCELLED' },
+  NOT_DRAFT_DELETE: { message: 'Apenas faturas em rascunho podem ser excluídas.', code: 'EXPENSE_INVOICE_NOT_DRAFT_DELETE' },
+  NOT_ISSUED_REVERT: { message: 'Apenas faturas emitidas podem ser revertidas para rascunho.', code: 'EXPENSE_INVOICE_NOT_ISSUED_REVERT' },
+  NOT_PAID_REVERT: { message: 'Apenas faturas pagas podem ser revertidas para emitida.', code: 'EXPENSE_INVOICE_NOT_PAID_REVERT' },
+  DRAFT_EXISTS_REVERT: { message: 'Já existe um rascunho para este projeto/período. Exclua ou emita o rascunho existente antes de reverter.', code: 'EXPENSE_INVOICE_DRAFT_EXISTS_REVERT' },
+  ACCESS_DENIED: { message: 'Você não tem acesso a esta fatura.', code: 'EXPENSE_INVOICE_ACCESS_DENIED' },
+  NO_EXPENSES: { message: 'Nenhuma despesa aprovada encontrada para este período.', code: 'EXPENSE_INVOICE_NO_EXPENSES' },
+  NO_RECEIPTS: { message: 'Nenhum comprovante encontrado para os itens desta fatura.', code: 'EXPENSE_INVOICE_NO_RECEIPTS' },
+  PERIOD_NOT_FOUND: { message: 'Período não encontrado.', code: 'EXPENSE_INVOICE_PERIOD_NOT_FOUND' },
+  ITEM_NOT_FOUND: { message: 'Item não encontrado nesta fatura.', code: 'EXPENSE_INVOICE_ITEM_NOT_FOUND' },
+  NOT_ISSUED_RECEIPTS: { message: 'Fatura ainda não foi emitida.', code: 'EXPENSE_INVOICE_NOT_ISSUED_RECEIPTS' },
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'EXPENSE_INVOICE_PROJECT_NOT_FOUND' },
 } as const;
 
 function buildItemDescription(
@@ -65,7 +66,7 @@ export async function generateDraft(projectId: string, periodId: string, created
       .where(eq(projects.id, projectId))
       .limit(1);
 
-    if (!project) throw new AppError('Projeto não encontrado.', 404);
+    if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
     // Get period
     const [period] = await tx.select()
@@ -73,7 +74,7 @@ export async function generateDraft(projectId: string, periodId: string, created
       .where(eq(projectExpensePeriods.id, periodId))
       .limit(1);
 
-    if (!period) throw new AppError(MSG.PERIOD_NOT_FOUND, 404);
+    if (!period) throw appError(MSG.PERIOD_NOT_FOUND, 404);
 
     // Check no active invoice exists for project/period
     const [existing] = await tx.select({ id: expenseInvoices.id })
@@ -84,7 +85,7 @@ export async function generateDraft(projectId: string, periodId: string, created
         ne(expenseInvoices.status, 'cancelled'),
       )).limit(1);
 
-    if (existing) throw new AppError(MSG.INVOICE_EXISTS, 409);
+    if (existing) throw appError(MSG.INVOICE_EXISTS, 409);
 
     // Get approved expenses for this period with consultant and category info
     const approvedExpenses = await tx.select({
@@ -106,7 +107,7 @@ export async function generateDraft(projectId: string, periodId: string, created
         between(expenses.date, period.weekStart, period.weekEnd),
       ));
 
-    if (approvedExpenses.length === 0) throw new AppError(MSG.NO_EXPENSES, 400);
+    if (approvedExpenses.length === 0) throw appError(MSG.NO_EXPENSES, 400);
 
     // Create expense invoice
     const [invoice] = await tx.insert(expenseInvoices).values({
@@ -165,8 +166,8 @@ export async function updateItems(
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'draft') throw appError(MSG.NOT_DRAFT, 400);
 
     let totalAmount = 0;
 
@@ -204,8 +205,8 @@ export async function issue(invoiceId: string, issuedBy: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_ISSUE, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'draft') throw appError(MSG.NOT_DRAFT_ISSUE, 400);
 
     const invoiceNumber = await getNextInvoiceNumber(tx);
 
@@ -228,8 +229,8 @@ export async function pay(invoiceId: string, paidBy: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'issued') throw new AppError(MSG.NOT_ISSUED, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'issued') throw appError(MSG.NOT_ISSUED, 400);
 
     const [updated] = await tx.update(expenseInvoices).set({
       status: 'paid',
@@ -249,8 +250,8 @@ export async function cancel(invoiceId: string, cancelledBy: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status === 'cancelled') throw new AppError(MSG.ALREADY_CANCELLED, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status === 'cancelled') throw appError(MSG.ALREADY_CANCELLED, 400);
 
     const [updated] = await tx.update(expenseInvoices).set({
       status: 'cancelled',
@@ -270,8 +271,8 @@ export async function remove(invoiceId: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_DELETE, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'draft') throw appError(MSG.NOT_DRAFT_DELETE, 400);
 
     await tx.delete(expenseInvoices).where(eq(expenseInvoices.id, invoiceId));
   });
@@ -388,18 +389,18 @@ export async function getById(invoiceId: string, requestUserId: string, requestU
     .where(eq(expenseInvoices.id, invoiceId))
     .limit(1);
 
-  if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!invoice) throw appError(MSG.NOT_FOUND, 404);
 
   // Access check
   if (requestUserRole === 'client') {
     if (invoice.clientId !== requestUserClientId) {
-      throw new AppError(MSG.ACCESS_DENIED, 403);
+      throw appError(MSG.ACCESS_DENIED, 403);
     }
     if (invoice.status !== 'issued' && invoice.status !== 'paid') {
-      throw new AppError(MSG.ACCESS_DENIED, 403);
+      throw appError(MSG.ACCESS_DENIED, 403);
     }
   } else if (requestUserRole !== 'super_admin' && requestUserRole !== 'administrative') {
-    throw new AppError(MSG.ACCESS_DENIED, 403);
+    throw appError(MSG.ACCESS_DENIED, 403);
   }
 
   const items = await db.select({
@@ -643,8 +644,8 @@ export async function removeItem(invoiceId: string, itemId: string): Promise<{ r
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'draft') throw new AppError(MSG.NOT_DRAFT, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'draft') throw appError(MSG.NOT_DRAFT, 400);
 
     const [item] = await tx.select({ id: expenseInvoiceItems.id })
       .from(expenseInvoiceItems)
@@ -654,7 +655,7 @@ export async function removeItem(invoiceId: string, itemId: string): Promise<{ r
       ))
       .limit(1);
 
-    if (!item) throw new AppError(MSG.ITEM_NOT_FOUND, 404);
+    if (!item) throw appError(MSG.ITEM_NOT_FOUND, 404);
 
     await tx.delete(expenseInvoiceItems).where(eq(expenseInvoiceItems.id, itemId));
 
@@ -692,8 +693,8 @@ export async function revertToDraft(invoiceId: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'issued') throw new AppError(MSG.NOT_ISSUED_REVERT, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'issued') throw appError(MSG.NOT_ISSUED_REVERT, 400);
 
     // Check if a draft already exists for same project/period
     const [existingDraft] = await tx.select({ id: expenseInvoices.id })
@@ -705,7 +706,7 @@ export async function revertToDraft(invoiceId: string) {
       ))
       .limit(1);
 
-    if (existingDraft) throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+    if (existingDraft) throw appError(MSG.DRAFT_EXISTS_REVERT, 409);
 
     try {
       const [updated] = await tx.update(expenseInvoices).set({
@@ -719,7 +720,7 @@ export async function revertToDraft(invoiceId: string) {
       return updated;
     } catch (err: any) {
       if (err?.code === '23505') {
-        throw new AppError(MSG.DRAFT_EXISTS_REVERT, 409);
+        throw appError(MSG.DRAFT_EXISTS_REVERT, 409);
       }
       throw err;
     }
@@ -733,8 +734,8 @@ export async function revertToIssued(invoiceId: string) {
       .where(eq(expenseInvoices.id, invoiceId))
       .limit(1);
 
-    if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-    if (invoice.status !== 'paid') throw new AppError(MSG.NOT_PAID_REVERT, 400);
+    if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+    if (invoice.status !== 'paid') throw appError(MSG.NOT_PAID_REVERT, 400);
 
     const [updated] = await tx.update(expenseInvoices).set({
       status: 'issued',
@@ -762,8 +763,8 @@ export async function getReceiptFiles(invoiceId: string) {
     .where(eq(expenseInvoices.id, invoiceId))
     .limit(1);
 
-  if (!invoice) throw new AppError(MSG.NOT_FOUND, 404);
-  if (invoice.status === 'draft') throw new AppError(MSG.NOT_ISSUED_RECEIPTS, 400);
+  if (!invoice) throw appError(MSG.NOT_FOUND, 404);
+  if (invoice.status === 'draft') throw appError(MSG.NOT_ISSUED_RECEIPTS, 400);
 
   // Fetch all items ordered by date to build sequential map (matching PDF order)
   const allItems = await db.select({
@@ -792,7 +793,7 @@ export async function getReceiptFiles(invoiceId: string) {
     .where(eq(expenseInvoiceItems.expenseInvoiceId, invoiceId));
 
   if (itemsWithFiles.length === 0) {
-    throw new AppError(MSG.NO_RECEIPTS, 404);
+    throw appError(MSG.NO_RECEIPTS, 404);
   }
 
   return { invoice, files: itemsWithFiles, seqMap };

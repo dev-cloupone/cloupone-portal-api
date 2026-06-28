@@ -1,12 +1,16 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { companyInfo } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
+
+const MSG = {
+  NOT_CONFIGURED: { message: 'Dados da empresa nao configurados. Acesse Configuracoes > Dados da Empresa.', code: 'COMPANY_NOT_CONFIGURED' },
+} as const;
 
 export async function getCompanyInfo() {
   const result = await db.query.companyInfo.findFirst();
   if (!result) {
-    throw new AppError('Dados da empresa nao configurados. Acesse Configuracoes > Dados da Empresa.', 404);
+    throw appError(MSG.NOT_CONFIGURED, 404);
   }
   return result;
 }

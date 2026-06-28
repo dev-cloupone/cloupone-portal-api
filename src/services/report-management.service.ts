@@ -1,12 +1,12 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { reports, reportPermissions, users } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 
 const MSG = {
-  REPORT_NOT_FOUND: 'Relatório não encontrado.',
-  REPORT_INACTIVE: 'Relatório inativo.',
-  ACCESS_DENIED: 'Você não tem acesso a este relatório.',
+  REPORT_NOT_FOUND: { message: 'Relatório não encontrado.', code: 'REPORT_NOT_FOUND' },
+  REPORT_INACTIVE: { message: 'Relatório inativo.', code: 'REPORT_INACTIVE' },
+  ACCESS_DENIED: { message: 'Você não tem acesso a este relatório.', code: 'REPORT_ACCESS_DENIED' },
 } as const;
 
 /** Lista relatórios visíveis ao usuário */
@@ -30,8 +30,8 @@ export async function getReportBySlug(slug: string, userId: string, userRole: st
     where: eq(reports.slug, slug),
   });
 
-  if (!report) throw new AppError(MSG.REPORT_NOT_FOUND, 404);
-  if (!report.isActive) throw new AppError(MSG.REPORT_INACTIVE, 404);
+  if (!report) throw appError(MSG.REPORT_NOT_FOUND, 404);
+  if (!report.isActive) throw appError(MSG.REPORT_INACTIVE, 404);
 
   if (userRole !== 'super_admin') {
     const perm = await db.query.reportPermissions.findFirst({
@@ -40,7 +40,7 @@ export async function getReportBySlug(slug: string, userId: string, userRole: st
         eq(reportPermissions.userId, userId),
       ),
     });
-    if (!perm) throw new AppError(MSG.ACCESS_DENIED, 403);
+    if (!perm) throw appError(MSG.ACCESS_DENIED, 403);
   }
 
   return report;
@@ -71,7 +71,7 @@ export async function updatePermissions(reportId: string, userIds: string[], gra
   const report = await db.query.reports.findFirst({
     where: eq(reports.id, reportId),
   });
-  if (!report) throw new AppError(MSG.REPORT_NOT_FOUND, 404);
+  if (!report) throw appError(MSG.REPORT_NOT_FOUND, 404);
 
   await db.transaction(async (tx) => {
     await tx.delete(reportPermissions).where(eq(reportPermissions.reportId, reportId));

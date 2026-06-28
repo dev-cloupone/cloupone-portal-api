@@ -11,7 +11,7 @@ import { db } from '../db';
 import { users } from '../db/schema';
 import { env } from '../config/env';
 import { setRefreshTokenCookie, clearRefreshTokenCookie } from '../utils/auth-cookies';
-import { AppError } from '../utils/app-error';
+import { AppError, appError } from '../utils/app-error';
 import { AUTH } from '../utils/error-messages';
 import { V } from '../utils/validation-messages';
 import { logger } from '../utils/logger';
@@ -43,7 +43,7 @@ const refreshToken: RequestHandler = async (req, res, next) => {
   try {
     const token = req.cookies?.refreshToken as string | undefined;
     if (!token) {
-      throw new AppError(AUTH.REFRESH_TOKEN_REQUIRED, 401);
+      throw appError(AUTH.REFRESH_TOKEN_REQUIRED, 401);
     }
 
     const result = await authService.refresh(token);
@@ -132,7 +132,7 @@ const register: RequestHandler = async (req, res, next) => {
   try {
     const allowSelfReg = await getSetting('allow_self_registration');
     if (allowSelfReg !== 'true') {
-      throw new AppError('Registro de novos usuários está desabilitado.', 403);
+      throw new AppError('Registro de novos usuários está desabilitado.', 403, 'AUTH_REGISTRATION_DISABLED');
     }
 
     const parsed = registerSchema.parse(req.body);
@@ -144,7 +144,7 @@ const register: RequestHandler = async (req, res, next) => {
       .limit(1);
 
     if (existing) {
-      throw new AppError('Este email já está em uso.', 409);
+      throw new AppError('Este email já está em uso.', 409, 'AUTH_EMAIL_IN_USE');
     }
 
     const passwordHash = await bcrypt.hash(parsed.password, 12);
@@ -204,7 +204,7 @@ const forceChangePassword: RequestHandler = async (req, res, next) => {
     });
 
     if (!user || !user.mustChangePassword) {
-      throw new AppError('Troca de senha não é necessária.', 400);
+      throw new AppError('Troca de senha não é necessária.', 400, 'AUTH_PASSWORD_CHANGE_NOT_REQUIRED');
     }
 
     const parsed = forceChangePasswordSchema.parse(req.body);

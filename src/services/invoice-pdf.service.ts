@@ -8,7 +8,14 @@ const UrlResolver = require('pdfmake/js/URLResolver').default;
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import { db } from '../db';
 import { invoices, invoiceLines, expenseInvoices, expenseInvoiceItems, projects, companyInfo, bankAccounts, expenses, projectExpenseCategories, users } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
+
+const MSG = {
+  COMPANY_NOT_CONFIGURED: { message: 'Dados da empresa não configurados. Acesse Configurações > Dados da Empresa.', code: 'COMPANY_NOT_CONFIGURED' },
+  INVOICE_NOT_FOUND: { message: 'Fatura não encontrada.', code: 'INVOICE_NOT_FOUND' },
+  BANK_ACCOUNT_NOT_FOUND: { message: 'Conta bancária não encontrada ou inativa.', code: 'BANK_ACCOUNT_NOT_FOUND_OR_INACTIVE' },
+  EXPENSE_INVOICE_NOT_FOUND: { message: 'Fatura de despesas não encontrada.', code: 'EXPENSE_INVOICE_NOT_FOUND' },
+} as const;
 
 const fonts = {
   Helvetica: {
@@ -38,7 +45,7 @@ const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
 async function getCompanyAndBank() {
   const company = await db.query.companyInfo.findFirst();
   if (!company) {
-    throw new AppError('Dados da empresa não configurados. Acesse Configurações > Dados da Empresa.', 400);
+    throw appError(MSG.COMPANY_NOT_CONFIGURED, 400);
   }
 
   const bankAccount = await db.query.bankAccounts.findFirst({
@@ -119,7 +126,7 @@ export async function generateInvoicePdf(invoiceId: string, bankAccountId: strin
     .where(eq(invoices.id, invoiceId))
     .limit(1);
 
-  if (!invoice) throw new AppError('Fatura não encontrada.', 404);
+  if (!invoice) throw appError(MSG.INVOICE_NOT_FOUND, 404);
 
   const lines = await db.select()
     .from(invoiceLines)
@@ -133,7 +140,7 @@ export async function generateInvoicePdf(invoiceId: string, bankAccountId: strin
   // Fetch company info
   const company = await db.query.companyInfo.findFirst();
   if (!company) {
-    throw new AppError('Dados da empresa não configurados. Acesse Configurações > Dados da Empresa.', 400);
+    throw appError(MSG.COMPANY_NOT_CONFIGURED, 400);
   }
 
   // Fetch specific bank account
@@ -141,7 +148,7 @@ export async function generateInvoicePdf(invoiceId: string, bankAccountId: strin
     where: and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.isActive, true)),
   });
   if (!bankAccount) {
-    throw new AppError('Conta bancária não encontrada ou inativa.', 400);
+    throw appError(MSG.BANK_ACCOUNT_NOT_FOUND, 400);
   }
 
   const logoSvgPath = path.resolve(__dirname, '../assets/cloup-one-brand.svg');
@@ -385,7 +392,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
     .where(eq(expenseInvoices.id, invoiceId))
     .limit(1);
 
-  if (!invoice) throw new AppError('Fatura de despesas não encontrada.', 404);
+  if (!invoice) throw appError(MSG.EXPENSE_INVOICE_NOT_FOUND, 404);
 
   const items = await db.select({
     description: expenseInvoiceItems.description,
@@ -407,7 +414,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
   // Fetch company info
   const company = await db.query.companyInfo.findFirst();
   if (!company) {
-    throw new AppError('Dados da empresa não configurados. Acesse Configurações > Dados da Empresa.', 400);
+    throw appError(MSG.COMPANY_NOT_CONFIGURED, 400);
   }
 
   // Fetch specific bank account
@@ -415,7 +422,7 @@ export async function generateInvoiceExpensesPdf(invoiceId: string, bankAccountI
     where: and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.isActive, true)),
   });
   if (!bankAccount) {
-    throw new AppError('Conta bancária não encontrada ou inativa.', 400);
+    throw appError(MSG.BANK_ACCOUNT_NOT_FOUND, 400);
   }
 
   // Load SVG logo (same as expense report)

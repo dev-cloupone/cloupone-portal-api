@@ -3,22 +3,22 @@ import { db } from '../db';
 import { projectPhases, projectSubphases, timeEntries, projects, projectAllocations } from '../db/schema';
 import { clients } from '../db/schema/clients';
 import type { SQL } from 'drizzle-orm';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
-  PROJECT_NOT_FOUND: 'Projeto não encontrado.',
-  PHASE_NOT_FOUND: 'Fase não encontrada.',
-  TARGET_HAS_PHASES: 'O projeto destino já possui fases ativas.',
-  SOURCE_ACCESS_DENIED: 'Você não tem acesso ao projeto de origem.',
-  INVALID_PHASE_IDS: 'Uma ou mais fases selecionadas não pertencem ao projeto de origem.',
-  INVALID_SUBPHASE_IDS: 'Uma ou mais subfases selecionadas não pertencem às fases informadas.',
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'PHASE_PROJECT_NOT_FOUND' },
+  PHASE_NOT_FOUND: { message: 'Fase não encontrada.', code: 'PHASE_NOT_FOUND' },
+  TARGET_HAS_PHASES: { message: 'O projeto destino já possui fases ativas.', code: 'PHASE_TARGET_HAS_PHASES' },
+  SOURCE_ACCESS_DENIED: { message: 'Você não tem acesso ao projeto de origem.', code: 'PHASE_SOURCE_ACCESS_DENIED' },
+  INVALID_PHASE_IDS: { message: 'Uma ou mais fases selecionadas não pertencem ao projeto de origem.', code: 'PHASE_INVALID_PHASE_IDS' },
+  INVALID_SUBPHASE_IDS: { message: 'Uma ou mais subfases selecionadas não pertencem às fases informadas.', code: 'PHASE_INVALID_SUBPHASE_IDS' },
 } as const;
 
 export async function listPhases(projectId: string, userId?: string, userRole?: string) {
   const [project] = await db.select({ id: projects.id })
     .from(projects).where(eq(projects.id, projectId)).limit(1);
-  if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+  if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
   if (userId && userRole) {
     await assertUserHasProjectAccess(userId, userRole, projectId);
@@ -70,7 +70,7 @@ export async function createPhase(projectId: string, data: {
 }, userId?: string, userRole?: string) {
   const [project] = await db.select({ id: projects.id })
     .from(projects).where(eq(projects.id, projectId)).limit(1);
-  if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+  if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
   if (userId && userRole) {
     await assertUserHasProjectAccess(userId, userRole, projectId);
@@ -97,7 +97,7 @@ export async function updatePhase(phaseId: string, data: Partial<{
 }>, userId?: string, userRole?: string) {
   const [existing] = await db.select({ id: projectPhases.id, projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
-  if (!existing) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.PHASE_NOT_FOUND, 404);
 
   if (userId && userRole) {
     await assertUserHasProjectAccess(userId, userRole, existing.projectId);
@@ -116,7 +116,7 @@ export async function updatePhase(phaseId: string, data: Partial<{
 export async function deactivatePhase(phaseId: string, userId?: string, userRole?: string) {
   const [existing] = await db.select({ id: projectPhases.id, projectId: projectPhases.projectId })
     .from(projectPhases).where(eq(projectPhases.id, phaseId)).limit(1);
-  if (!existing) throw new AppError(MSG.PHASE_NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.PHASE_NOT_FOUND, 404);
 
   if (userId && userRole) {
     await assertUserHasProjectAccess(userId, userRole, existing.projectId);
@@ -312,14 +312,14 @@ export async function clonePhases(
   // 1. Validar que o projeto destino existe
   const [targetProject] = await db.select({ id: projects.id })
     .from(projects).where(eq(projects.id, targetProjectId)).limit(1);
-  if (!targetProject) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+  if (!targetProject) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
   // 2. Validar que o projeto destino não tem fases ativas
   const existingPhases = await db.select({ id: projectPhases.id })
     .from(projectPhases)
     .where(and(eq(projectPhases.projectId, targetProjectId), eq(projectPhases.isActive, true)))
     .limit(1);
-  if (existingPhases.length > 0) throw new AppError(MSG.TARGET_HAS_PHASES, 400);
+  if (existingPhases.length > 0) throw appError(MSG.TARGET_HAS_PHASES, 400);
 
   // 3. Validar acesso do gestor ao projeto de origem
   if (userRole !== 'super_admin') {
@@ -330,7 +330,7 @@ export async function clonePhases(
         eq(projectAllocations.userId, userId),
       ))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.SOURCE_ACCESS_DENIED, 403);
+    if (!allocation) throw appError(MSG.SOURCE_ACCESS_DENIED, 403);
   }
 
   // 4. Validar que os phaseIds existem no projeto de origem
@@ -345,7 +345,7 @@ export async function clonePhases(
     .orderBy(asc(projectPhases.order));
 
   if (sourcePhases.length !== sourcePhaseIds.length) {
-    throw new AppError(MSG.INVALID_PHASE_IDS, 400);
+    throw appError(MSG.INVALID_PHASE_IDS, 400);
   }
 
   // 5. Validar que os subphaseIds existem nas fases correspondentes
@@ -358,7 +358,7 @@ export async function clonePhases(
         inArray(projectSubphases.id, p.subphaseIds),
       ));
     if (sourceSubphases.length !== p.subphaseIds.length) {
-      throw new AppError(MSG.INVALID_SUBPHASE_IDS, 400);
+      throw appError(MSG.INVALID_SUBPHASE_IDS, 400);
     }
   }
 

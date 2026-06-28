@@ -1,12 +1,12 @@
 import { eq, and, asc } from 'drizzle-orm';
 import { db } from '../db';
 import { projectExpenseCategories, expenseCategoryTemplates } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 
 const MSG = {
-  NOT_FOUND: 'Categoria de despesa do projeto não encontrada.',
-  TEMPLATE_NOT_FOUND: 'Template de categoria não encontrado ou inativo.',
-  ALREADY_IMPORTED: 'Este template já foi importado neste projeto.',
+  NOT_FOUND: { message: 'Categoria de despesa do projeto não encontrada.', code: 'PROJECT_EXPENSE_CATEGORY_NOT_FOUND' },
+  TEMPLATE_NOT_FOUND: { message: 'Template de categoria não encontrado ou inativo.', code: 'PROJECT_EXPENSE_CATEGORY_TEMPLATE_NOT_FOUND' },
+  ALREADY_IMPORTED: { message: 'Este template já foi importado neste projeto.', code: 'PROJECT_EXPENSE_CATEGORY_ALREADY_IMPORTED' },
 } as const;
 
 export async function listByProject(projectId: string) {
@@ -32,7 +32,7 @@ export async function importFromTemplate(
       eq(expenseCategoryTemplates.isActive, true),
     ))
     .limit(1);
-  if (!template) throw new AppError(MSG.TEMPLATE_NOT_FOUND, 404);
+  if (!template) throw appError(MSG.TEMPLATE_NOT_FOUND, 404);
 
   // Check not already imported (active)
   const [existingActive] = await db.select({ id: projectExpenseCategories.id })
@@ -43,7 +43,7 @@ export async function importFromTemplate(
       eq(projectExpenseCategories.isActive, true),
     ))
     .limit(1);
-  if (existingActive) throw new AppError(MSG.ALREADY_IMPORTED, 409);
+  if (existingActive) throw appError(MSG.ALREADY_IMPORTED, 409);
 
   // Check for deactivated category with same template — reactivate it
   const [existingInactive] = await db.select({ id: projectExpenseCategories.id })
@@ -97,7 +97,7 @@ export async function updateProjectCategory(
     .from(projectExpenseCategories)
     .where(and(eq(projectExpenseCategories.id, id), eq(projectExpenseCategories.projectId, projectId)))
     .limit(1);
-  if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.NOT_FOUND, 404);
 
   const [updated] = await db.update(projectExpenseCategories)
     .set({ ...data, updatedAt: new Date() })
@@ -111,7 +111,7 @@ export async function deactivateProjectCategory(id: string, projectId: string) {
     .from(projectExpenseCategories)
     .where(and(eq(projectExpenseCategories.id, id), eq(projectExpenseCategories.projectId, projectId)))
     .limit(1);
-  if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!existing) throw appError(MSG.NOT_FOUND, 404);
 
   const [updated] = await db.update(projectExpenseCategories)
     .set({ isActive: false, updatedAt: new Date() })

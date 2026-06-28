@@ -2,13 +2,13 @@ import type { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import type { JwtPayload } from '../types/auth.types';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { MIDDLEWARE, AUTH } from '../utils/error-messages';
 
 export const auth: RequestHandler = (req, _res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(new AppError(MIDDLEWARE.AUTH_REQUIRED, 401));
+    return next(appError(MIDDLEWARE.AUTH_REQUIRED, 401));
   }
 
   const token = authHeader.slice(7);
@@ -20,6 +20,6 @@ export const auth: RequestHandler = (req, _res, next) => {
     req.userClientId = payload.clientId;
     next();
   } catch {
-    next(new AppError(AUTH.TOKEN_INVALID, 401));
+    next(appError(AUTH.TOKEN_INVALID, 401));
   }
 };

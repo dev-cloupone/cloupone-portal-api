@@ -6,8 +6,30 @@ import {
   consultantProfiles, monthlyTimesheets, projectSubphases,
   projectPhases, subphaseConsultants, importLogs,
 } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { AppError, appError } from '../utils/app-error';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
+
+const MSG = {
+  INVALID_FORMAT: { message: 'Formato inválido. Use .xlsx ou .csv.', code: 'IMPORT_INVALID_FORMAT' },
+  EMPTY_FILE: { message: 'Arquivo vazio ou inválido.', code: 'IMPORT_EMPTY_FILE' },
+  NO_DATA: { message: 'Arquivo não contém dados.', code: 'IMPORT_NO_DATA' },
+  MAX_ROWS: { message: 'Máximo de 500 linhas por importação.', code: 'IMPORT_MAX_ROWS' },
+  MONTH_APPROVED: { message: 'Mês aprovado. Não é possível inserir apontamentos.', code: 'MONTH_APPROVED' },
+  INVALID_TIME: { message: 'Horário inválido. Use formato HH:MM.', code: 'IMPORT_INVALID_TIME' },
+  START_AFTER_END: { message: 'Horário de início deve ser anterior ao horário de fim.', code: 'IMPORT_START_AFTER_END' },
+  MIN_DURATION: { message: 'Duração mínima de 15 minutos.', code: 'IMPORT_MIN_DURATION' },
+  DUPLICATE_EXISTS: { message: 'Apontamento duplicado já existe no sistema.', code: 'IMPORT_DUPLICATE' },
+  INTRA_FILE_OVERLAP: { message: 'Sobreposição com outra linha do arquivo.', code: 'IMPORT_INTRA_FILE_OVERLAP' },
+  MONTH_APPROVED_ABORT: { message: 'Mês está aprovado. Importação cancelada.', code: 'IMPORT_MONTH_APPROVED_ABORT' },
+  NOT_ALLOCATED_ABORT: { message: 'Consultor não está alocado no projeto. Importação cancelada.', code: 'IMPORT_NOT_ALLOCATED' },
+  SUBPHASE_NOT_FOUND_ABORT: { message: 'Subfase não encontrada. Importação cancelada.', code: 'IMPORT_SUBPHASE_NOT_FOUND' },
+  SUBPHASE_NOT_IN_PROGRESS_ABORT: { message: 'Subfase não está em andamento. Importação cancelada.', code: 'IMPORT_SUBPHASE_NOT_IN_PROGRESS' },
+  NOT_LINKED_ABORT: { message: 'Consultor não está vinculado à subfase. Importação cancelada.', code: 'IMPORT_NOT_LINKED' },
+  TICKET_NOT_FOUND_ABORT: { message: 'Ticket não encontrado. Importação cancelada.', code: 'IMPORT_TICKET_NOT_FOUND' },
+  TICKET_WRONG_PROJECT_ABORT: { message: 'Ticket não pertence ao projeto. Importação cancelada.', code: 'IMPORT_TICKET_WRONG_PROJECT' },
+  OVERLAP_ABORT: { message: 'Sobreposição detectada. Importação cancelada.', code: 'IMPORT_OVERLAP' },
+  INTRA_OVERLAP_ABORT: { message: 'Sobreposição intra-arquivo detectada. Importação cancelada.', code: 'IMPORT_INTRA_OVERLAP' },
+} as const;
 
 // === TYPES ===
 
@@ -145,7 +167,7 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export function parseFile(buffer: Buffer, filename: string): RawRow[] {
   const ext = filename.split('.').pop()?.toLowerCase();
   if (!ext || !['xlsx', 'csv'].includes(ext)) {
-    throw new AppError('Formato inválido. Use .xlsx ou .csv.', 400);
+    throw appError(MSG.INVALID_FORMAT, 400);
   }
 
   let workbook: XLSX.WorkBook;
@@ -160,11 +182,11 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
   }
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) throw new AppError('Arquivo vazio ou inválido.', 400);
+  if (!sheet) throw appError(MSG.EMPTY_FILE, 400);
 
   const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: true });
-  if (rawData.length === 0) throw new AppError('Arquivo não contém dados.', 400);
-  if (rawData.length > 500) throw new AppError('Máximo de 500 linhas por importação.', 400);
+  if (rawData.length === 0) throw appError(MSG.NO_DATA, 400);
+  if (rawData.length > 500) throw appError(MSG.MAX_ROWS, 400);
 
   // Map headers
   const firstRow = rawData[0];
@@ -180,7 +202,7 @@ export function parseFile(buffer: Buffer, filename: string): RawRow[] {
   const mappedFields = new Set(Object.values(headerMapping));
   const missing = REQUIRED_FIELDS.filter(f => !mappedFields.has(f));
   if (missing.length > 0) {
-    throw new AppError(`Colunas obrigatórias não encontradas: ${missing.join(', ')}. Esperado: Data, Projeto, Fase, Subfase, Início, Fim.`, 400);
+    throw new AppError(`Colunas obrigatórias não encontradas: ${missing.join(', ')}. Esperado: Data, Projeto, Fase, Subfase, Início, Fim.`, 400, 'IMPORT_MISSING_COLUMNS');
   }
 
   return rawData.map(row => {
@@ -530,7 +552,7 @@ export async function confirmImport(
 
       // Revalidate: month open
       const isOpen = await monthlyTimesheetService.isMonthOpen(consultantId, year, month);
-      if (!isOpen) throw new AppError(`Mês ${month}/${year} está aprovado. Importação cancelada.`, 400);
+      if (!isOpen) throw new AppError(`Mês ${month}/${year} está aprovado. Importação cancelada.`, 400, 'IMPORT_MONTH_APPROVED_ABORT');
 
       // Revalidate: allocation
       const [allocation] = await tx.select({ id: projectAllocations.id })
@@ -540,15 +562,15 @@ export async function confirmImport(
           eq(projectAllocations.userId, consultantId),
         ))
         .limit(1);
-      if (!allocation) throw new AppError(`Consultor não está alocado no projeto. Importação cancelada.`, 400);
+      if (!allocation) throw appError(MSG.NOT_ALLOCATED_ABORT, 400);
 
       // Revalidate: subphase in progress + consultant link
       const [subphase] = await tx.select({ id: projectSubphases.id, status: projectSubphases.status })
         .from(projectSubphases)
         .where(eq(projectSubphases.id, row.subphaseId))
         .limit(1);
-      if (!subphase) throw new AppError('Subfase não encontrada. Importação cancelada.', 400);
-      if (subphase.status !== 'in_progress') throw new AppError('Subfase não está em andamento. Importação cancelada.', 400);
+      if (!subphase) throw appError(MSG.SUBPHASE_NOT_FOUND_ABORT, 400);
+      if (subphase.status !== 'in_progress') throw appError(MSG.SUBPHASE_NOT_IN_PROGRESS_ABORT, 400);
 
       if (actorRole === 'consultor') {
         const [link] = await tx.select({ id: subphaseConsultants.id })
@@ -558,7 +580,7 @@ export async function confirmImport(
             eq(subphaseConsultants.userId, consultantId),
           ))
           .limit(1);
-        if (!link) throw new AppError('Consultor não está vinculado à subfase. Importação cancelada.', 400);
+        if (!link) throw appError(MSG.NOT_LINKED_ABORT, 400);
       }
 
       // Revalidate: ticket
@@ -567,8 +589,8 @@ export async function confirmImport(
           .from(tickets)
           .where(eq(tickets.id, row.ticketId))
           .limit(1);
-        if (!ticket) throw new AppError('Ticket não encontrado. Importação cancelada.', 404);
-        if (ticket.projectId !== row.projectId) throw new AppError('Ticket não pertence ao projeto. Importação cancelada.', 400);
+        if (!ticket) throw appError(MSG.TICKET_NOT_FOUND_ABORT, 404);
+        if (ticket.projectId !== row.projectId) throw appError(MSG.TICKET_WRONG_PROJECT_ABORT, 400);
       }
 
       // Revalidate: overlap with DB + already-inserted
@@ -585,12 +607,12 @@ export async function confirmImport(
             sql`${timeEntries.endTime} > ${startTime}::time`,
           ))
           .limit(1);
-        if (overlapping.length > 0) throw new AppError('Sobreposição detectada. Importação cancelada.', 409);
+        if (overlapping.length > 0) throw appError(MSG.OVERLAP_ABORT, 409);
 
         const intraOverlap = insertedEntries.some(e =>
           e.date === row.date && e.startMin < endMin && e.endMin > startMin
         );
-        if (intraOverlap) throw new AppError('Sobreposição intra-arquivo detectada. Importação cancelada.', 409);
+        if (intraOverlap) throw appError(MSG.INTRA_OVERLAP_ABORT, 409);
 
         insertedEntries.push({ date: row.date, startMin, endMin });
       }

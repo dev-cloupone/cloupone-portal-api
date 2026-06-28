@@ -2,8 +2,14 @@ import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import * as monthlyTimesheetService from '../services/monthly-timesheet.service';
 import { paginationSchema } from '../utils/pagination';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { V } from '../utils/validation-messages';
+
+const MSG = {
+  CANNOT_VIEW_OTHER: { message: 'Você não tem permissão para ver apontamentos de outro consultor.', code: 'TIMESHEET_VIEW_FORBIDDEN' },
+  CANNOT_APPROVE_OTHER: { message: 'Você não tem permissão para aprovar apontamentos de outro consultor.', code: 'TIMESHEET_APPROVE_FORBIDDEN' },
+  APPROVE_PAST_ONLY: { message: 'Você só pode aprovar meses que já foram encerrados.', code: 'TIMESHEET_APPROVE_PAST_ONLY' },
+} as const;
 
 const yearMonthParamsSchema = z.object({
   userId: z.string().uuid(V.uuidInvalid('Usuário')),
@@ -39,7 +45,7 @@ const getDetail: RequestHandler = async (req, res, next) => {
 
     // Consultor can only see their own
     if (req.userRole === 'consultor' && req.userId !== userId) {
-      throw new AppError('Você não tem permissão para ver apontamentos de outro consultor.', 403);
+      throw appError(MSG.CANNOT_VIEW_OTHER, 403);
     }
 
     const result = await monthlyTimesheetService.getDetail(userId, year, month);
@@ -64,7 +70,7 @@ const approve: RequestHandler = async (req, res, next) => {
 
     // Only super_admin can approve others' timesheets
     if (req.userRole !== 'super_admin' && req.userId !== userId) {
-      throw new AppError('Você não tem permissão para aprovar apontamentos de outro consultor.', 403);
+      throw appError(MSG.CANNOT_APPROVE_OTHER, 403);
     }
 
     // Non-admins can only approve past months — only admins can approve early
@@ -73,7 +79,7 @@ const approve: RequestHandler = async (req, res, next) => {
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
       if (year > currentYear || (year === currentYear && month >= currentMonth)) {
-        throw new AppError('Você só pode aprovar meses que já foram encerrados.', 400);
+        throw appError(MSG.APPROVE_PAST_ONLY, 400);
       }
     }
 

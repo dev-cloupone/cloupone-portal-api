@@ -5,7 +5,7 @@ import { RATE_LIMIT } from '../utils/error-messages';
 export const authSensitiveRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
-  message: { error: RATE_LIMIT.TOO_MANY_ATTEMPTS },
+  message: { error: RATE_LIMIT.TOO_MANY_ATTEMPTS.message, code: RATE_LIMIT.TOO_MANY_ATTEMPTS.code },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -14,7 +14,7 @@ export const authSensitiveRateLimit = rateLimit({
 export const authGeneralRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
-  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS },
+  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS.message, code: RATE_LIMIT.TOO_MANY_REQUESTS.code },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -29,7 +29,7 @@ export const searchRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   keyGenerator: authKeyGenerator,
-  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS },
+  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS.message, code: RATE_LIMIT.TOO_MANY_REQUESTS.code },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -39,7 +39,7 @@ export const authenticatedRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
   keyGenerator: authKeyGenerator,
-  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS },
+  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS.message, code: RATE_LIMIT.TOO_MANY_REQUESTS.code },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -48,7 +48,7 @@ export const authenticatedRateLimit = rateLimit({
 export const globalRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 200,
-  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS },
+  message: { error: RATE_LIMIT.TOO_MANY_REQUESTS.message, code: RATE_LIMIT.TOO_MANY_REQUESTS.code },
   standardHeaders: true,
   legacyHeaders: false,
 });

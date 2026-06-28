@@ -9,23 +9,24 @@ import {
   users,
   projects,
 } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import { getPresignedUrl } from './file.service';
 
 const MSG = {
-  TIMESHEET_NOT_APPROVED: 'O timesheet deste consultor para este mês não está aprovado.',
-  PAYMENT_EXISTS: 'Já existe um pagamento ativo para este consultor neste mês.',
-  NOT_FOUND: 'Pagamento não encontrado.',
-  NOT_DRAFT: 'Apenas pagamentos em rascunho podem ser editados.',
-  NOT_DRAFT_CONFIRM: 'Apenas pagamentos em rascunho podem ser confirmados.',
-  NOT_CONFIRMED: 'Apenas pagamentos confirmados podem ser pagos.',
-  ALREADY_CANCELLED: 'Este pagamento já está cancelado.',
-  NOT_CONFIRMED_REVERT: 'Apenas pagamentos confirmados podem ser revertidos para rascunho.',
-  NOT_DRAFT_DELETE: 'Apenas pagamentos em rascunho podem ser excluídos.',
-  ACCESS_DENIED: 'Você não tem acesso a este pagamento.',
-  NO_ENTRIES: 'Nenhum lançamento de horas encontrado para este consultor neste mês.',
+  TIMESHEET_NOT_APPROVED: { message: 'O timesheet deste consultor para este mês não está aprovado.', code: 'CONSULTANT_PAYMENT_TIMESHEET_NOT_APPROVED' },
+  PAYMENT_EXISTS: { message: 'Já existe um pagamento ativo para este consultor neste mês.', code: 'CONSULTANT_PAYMENT_PAYMENT_EXISTS' },
+  NOT_FOUND: { message: 'Pagamento não encontrado.', code: 'CONSULTANT_PAYMENT_NOT_FOUND' },
+  NOT_DRAFT: { message: 'Apenas pagamentos em rascunho podem ser editados.', code: 'CONSULTANT_PAYMENT_NOT_DRAFT' },
+  NOT_DRAFT_CONFIRM: { message: 'Apenas pagamentos em rascunho podem ser confirmados.', code: 'CONSULTANT_PAYMENT_NOT_DRAFT_CONFIRM' },
+  NOT_CONFIRMED: { message: 'Apenas pagamentos confirmados podem ser pagos.', code: 'CONSULTANT_PAYMENT_NOT_CONFIRMED' },
+  ALREADY_CANCELLED: { message: 'Este pagamento já está cancelado.', code: 'CONSULTANT_PAYMENT_ALREADY_CANCELLED' },
+  NOT_CONFIRMED_REVERT: { message: 'Apenas pagamentos confirmados podem ser revertidos para rascunho.', code: 'CONSULTANT_PAYMENT_NOT_CONFIRMED_REVERT' },
+  NOT_DRAFT_DELETE: { message: 'Apenas pagamentos em rascunho podem ser excluídos.', code: 'CONSULTANT_PAYMENT_NOT_DRAFT_DELETE' },
+  ACCESS_DENIED: { message: 'Você não tem acesso a este pagamento.', code: 'CONSULTANT_PAYMENT_ACCESS_DENIED' },
+  NO_ENTRIES: { message: 'Nenhum lançamento de horas encontrado para este consultor neste mês.', code: 'CONSULTANT_PAYMENT_NO_ENTRIES' },
+  RECEIPT_NOT_FOUND: { message: 'Comprovante não encontrado.', code: 'CONSULTANT_PAYMENT_RECEIPT_NOT_FOUND' },
 } as const;
 
 async function buildPaymentLines(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], userId: string, year: number, month: number) {
@@ -94,7 +95,7 @@ export async function generateDraft(userId: string, year: number, month: number,
       .limit(1);
 
     if (!timesheet || timesheet.status !== 'approved') {
-      throw new AppError(MSG.TIMESHEET_NOT_APPROVED, 400);
+      throw appError(MSG.TIMESHEET_NOT_APPROVED, 400);
     }
 
     // Check no active payment exists
@@ -108,10 +109,10 @@ export async function generateDraft(userId: string, year: number, month: number,
       ))
       .limit(1);
 
-    if (existing) throw new AppError(MSG.PAYMENT_EXISTS, 409);
+    if (existing) throw appError(MSG.PAYMENT_EXISTS, 409);
 
     const result = await buildPaymentLines(tx, userId, year, month);
-    if (!result) throw new AppError(MSG.NO_ENTRIES, 400);
+    if (!result) throw appError(MSG.NO_ENTRIES, 400);
 
     const { lines, totalHours, totalAmount } = result;
 
@@ -199,8 +200,8 @@ export async function updateLines(paymentId: string, lines: { id: string; applie
       .where(eq(consultantPayments.id, paymentId))
       .limit(1);
 
-    if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-    if (payment.status !== 'draft') throw new AppError(MSG.NOT_DRAFT, 400);
+    if (!payment) throw appError(MSG.NOT_FOUND, 404);
+    if (payment.status !== 'draft') throw appError(MSG.NOT_DRAFT, 400);
 
     let totalHours = 0;
     let totalAmount = 0;
@@ -240,8 +241,8 @@ export async function confirm(paymentId: string, confirmedBy: string) {
       .where(eq(consultantPayments.id, paymentId))
       .limit(1);
 
-    if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-    if (payment.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_CONFIRM, 400);
+    if (!payment) throw appError(MSG.NOT_FOUND, 404);
+    if (payment.status !== 'draft') throw appError(MSG.NOT_DRAFT_CONFIRM, 400);
 
     const now = new Date();
 
@@ -272,8 +273,8 @@ export async function pay(paymentId: string, paidBy: string, receiptFileId?: str
     .where(eq(consultantPayments.id, paymentId))
     .limit(1);
 
-  if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-  if (payment.status !== 'confirmed') throw new AppError(MSG.NOT_CONFIRMED, 400);
+  if (!payment) throw appError(MSG.NOT_FOUND, 404);
+  if (payment.status !== 'confirmed') throw appError(MSG.NOT_CONFIRMED, 400);
 
   const now = new Date();
   const updateData: Record<string, unknown> = {
@@ -299,8 +300,8 @@ export async function cancel(paymentId: string, cancelledBy: string) {
       .where(eq(consultantPayments.id, paymentId))
       .limit(1);
 
-    if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-    if (payment.status === 'cancelled') throw new AppError(MSG.ALREADY_CANCELLED, 400);
+    if (!payment) throw appError(MSG.NOT_FOUND, 404);
+    if (payment.status === 'cancelled') throw appError(MSG.ALREADY_CANCELLED, 400);
 
     const now = new Date();
 
@@ -334,8 +335,8 @@ export async function revert(paymentId: string) {
       .where(eq(consultantPayments.id, paymentId))
       .limit(1);
 
-    if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-    if (payment.status !== 'confirmed') throw new AppError(MSG.NOT_CONFIRMED_REVERT, 400);
+    if (!payment) throw appError(MSG.NOT_FOUND, 404);
+    if (payment.status !== 'confirmed') throw appError(MSG.NOT_CONFIRMED_REVERT, 400);
 
     const now = new Date();
 
@@ -366,8 +367,8 @@ export async function remove(paymentId: string) {
     .where(eq(consultantPayments.id, paymentId))
     .limit(1);
 
-  if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-  if (payment.status !== 'draft') throw new AppError(MSG.NOT_DRAFT_DELETE, 400);
+  if (!payment) throw appError(MSG.NOT_FOUND, 404);
+  if (payment.status !== 'draft') throw appError(MSG.NOT_DRAFT_DELETE, 400);
 
   await db.delete(consultantPayments).where(eq(consultantPayments.id, paymentId));
 }
@@ -467,11 +468,11 @@ export async function getById(paymentId: string, requestUserId: string, requestU
     .where(eq(consultantPayments.id, paymentId))
     .limit(1);
 
-  if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!payment) throw appError(MSG.NOT_FOUND, 404);
 
   // Access check
   if (requestUserRole !== 'super_admin' && requestUserRole !== 'administrative' && payment.userId !== requestUserId) {
-    throw new AppError(MSG.ACCESS_DENIED, 403);
+    throw appError(MSG.ACCESS_DENIED, 403);
   }
 
   const lines = await db.select({
@@ -501,11 +502,11 @@ export async function getReceipt(paymentId: string, requestUserId: string, reque
     .where(eq(consultantPayments.id, paymentId))
     .limit(1);
 
-  if (!payment) throw new AppError(MSG.NOT_FOUND, 404);
-  if (!payment.receiptFileId) throw new AppError('Comprovante não encontrado.', 404);
+  if (!payment) throw appError(MSG.NOT_FOUND, 404);
+  if (!payment.receiptFileId) throw appError(MSG.RECEIPT_NOT_FOUND, 404);
 
   if (requestUserRole !== 'super_admin' && requestUserRole !== 'administrative' && payment.userId !== requestUserId) {
-    throw new AppError(MSG.ACCESS_DENIED, 403);
+    throw appError(MSG.ACCESS_DENIED, 403);
   }
 
   return getPresignedUrl(payment.receiptFileId);

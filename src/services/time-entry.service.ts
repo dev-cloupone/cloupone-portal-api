@@ -1,21 +1,26 @@
 import { eq, and, between, count as drizzleCount, desc, asc, sql, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { timeEntries, projects, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
 
 const MSG = {
-  NOT_FOUND: 'Apontamento não encontrado.',
-  NOT_OWNER: 'Você não pode editar apontamentos de outro consultor.',
-  MONTH_CLOSED: 'Mês aprovado. Não é possível editar apontamentos.',
-  NOT_ALLOCATED: 'Consultor não está alocado neste projeto.',
-  SUBPHASE_REQUIRED: 'Subfase é obrigatória para novos apontamentos.',
-  SUBPHASE_NOT_FOUND: 'Subfase não encontrada.',
-  SUBPHASE_NOT_IN_PROGRESS: 'Subfase não está em andamento.',
-  NOT_LINKED_TO_SUBPHASE: 'Consultor não está vinculado a esta subfase.',
-  SUBPHASE_NOT_IN_PROJECT: 'Subfase não pertence ao projeto selecionado.',
+  NOT_FOUND: { message: 'Apontamento não encontrado.', code: 'TIME_ENTRY_NOT_FOUND' },
+  NOT_OWNER: { message: 'Você não pode editar apontamentos de outro consultor.', code: 'TIME_ENTRY_NOT_OWNER' },
+  MONTH_CLOSED: { message: 'Mês aprovado. Não é possível editar apontamentos.', code: 'TIME_ENTRY_MONTH_CLOSED' },
+  NOT_ALLOCATED: { message: 'Consultor não está alocado neste projeto.', code: 'TIME_ENTRY_NOT_ALLOCATED' },
+  SUBPHASE_REQUIRED: { message: 'Subfase é obrigatória para novos apontamentos.', code: 'TIME_ENTRY_SUBPHASE_REQUIRED' },
+  SUBPHASE_NOT_FOUND: { message: 'Subfase não encontrada.', code: 'TIME_ENTRY_SUBPHASE_NOT_FOUND' },
+  SUBPHASE_NOT_IN_PROGRESS: { message: 'Subfase não está em andamento.', code: 'TIME_ENTRY_SUBPHASE_NOT_IN_PROGRESS' },
+  NOT_LINKED_TO_SUBPHASE: { message: 'Consultor não está vinculado a esta subfase.', code: 'TIME_ENTRY_NOT_LINKED_TO_SUBPHASE' },
+  SUBPHASE_NOT_IN_PROJECT: { message: 'Subfase não pertence ao projeto selecionado.', code: 'TIME_ENTRY_SUBPHASE_NOT_IN_PROJECT' },
+  START_BEFORE_END: { message: 'Horário de início deve ser anterior ao horário de fim.', code: 'TIME_ENTRY_START_BEFORE_END' },
+  MIN_DURATION: { message: 'Duração mínima de 15 minutos.', code: 'TIME_ENTRY_MIN_DURATION' },
+  OVERLAP: { message: 'Sobreposição detectada com outro registro.', code: 'TIME_ENTRY_OVERLAP' },
+  TICKET_NOT_FOUND: { message: 'Ticket não encontrado.', code: 'TIME_ENTRY_TICKET_NOT_FOUND' },
+  TICKET_NOT_IN_PROJECT: { message: 'Ticket não pertence ao projeto selecionado.', code: 'TIME_ENTRY_TICKET_NOT_IN_PROJECT' },
 } as const;
 
 // --- Time utility functions ---
@@ -44,12 +49,12 @@ function validateTimeRange(startTime: string, endTime: string): void {
   const endMin = timeToMinutes(endTime);
 
   if (startMin >= endMin) {
-    throw new AppError('Horário de início deve ser anterior ao horário de fim.', 400);
+    throw appError(MSG.START_BEFORE_END, 400);
   }
 
   const duration = endMin - startMin;
   if (duration < 15) {
-    throw new AppError('Duração mínima de 15 minutos.', 400);
+    throw appError(MSG.MIN_DURATION, 400);
   }
 }
 
@@ -89,8 +94,8 @@ async function validateOverlap(
 
   if (overlapping.length > 0) {
     const entry = overlapping[0];
-    throw new AppError(
-      `Sobreposição detectada com registro das ${entry.startTime} às ${entry.endTime}.`,
+    throw appError(
+      { message: `Sobreposição detectada com registro das ${entry.startTime} às ${entry.endTime}.`, code: MSG.OVERLAP.code },
       409,
     );
   }
@@ -251,7 +256,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   // 3. Validate month is open
   const { year, month } = extractYearMonth(data.date);
   const isOpen = await monthlyTimesheetService.isMonthOpen(data.userId, year, month);
-  if (!isOpen) throw new AppError(MSG.MONTH_CLOSED, 400);
+  if (!isOpen) throw appError(MSG.MONTH_CLOSED, 400);
 
   // 4. Validate project allocation
   const [allocation] = await db
@@ -263,7 +268,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     ))
     .limit(1);
 
-  if (!allocation) throw new AppError(MSG.NOT_ALLOCATED, 400);
+  if (!allocation) throw appError(MSG.NOT_ALLOCATED, 400);
 
   // 5. Validate ticket belongs to project (if provided)
   if (data.ticketId) {
@@ -272,22 +277,22 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
       .from(tickets)
       .where(eq(tickets.id, data.ticketId))
       .limit(1);
-    if (!ticket) throw new AppError('Ticket não encontrado.', 404);
+    if (!ticket) throw appError(MSG.TICKET_NOT_FOUND, 404);
     if (ticket.projectId !== data.projectId) {
-      throw new AppError('Ticket não pertence ao projeto selecionado.', 400);
+      throw appError(MSG.TICKET_NOT_IN_PROJECT, 400);
     }
   }
 
   // 5.5 Validate subphase (obrigatório para novos apontamentos)
   if (!data.id && !data.subphaseId) {
-    throw new AppError(MSG.SUBPHASE_REQUIRED, 400);
+    throw appError(MSG.SUBPHASE_REQUIRED, 400);
   }
 
   if (data.subphaseId) {
     const [subphase] = await db.select({ id: projectSubphases.id, status: projectSubphases.status })
       .from(projectSubphases).where(eq(projectSubphases.id, data.subphaseId)).limit(1);
-    if (!subphase) throw new AppError(MSG.SUBPHASE_NOT_FOUND, 404);
-    if (subphase.status !== 'in_progress') throw new AppError(MSG.SUBPHASE_NOT_IN_PROGRESS, 400);
+    if (!subphase) throw appError(MSG.SUBPHASE_NOT_FOUND, 404);
+    if (subphase.status !== 'in_progress') throw appError(MSG.SUBPHASE_NOT_IN_PROGRESS, 400);
 
     if (data.userRole === 'gestor' || data.userRole === 'super_admin') {
       // Validar que a subfase pertence ao projeto
@@ -299,14 +304,14 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
           eq(projectPhases.projectId, data.projectId),
         ))
         .limit(1);
-      if (!spInProject) throw new AppError(MSG.SUBPHASE_NOT_IN_PROJECT, 400);
+      if (!spInProject) throw appError(MSG.SUBPHASE_NOT_IN_PROJECT, 400);
     } else {
       // consultor: check subphase_consultants
       const [link] = await db.select({ id: subphaseConsultants.id })
         .from(subphaseConsultants)
         .where(and(eq(subphaseConsultants.subphaseId, data.subphaseId), eq(subphaseConsultants.userId, data.userId)))
         .limit(1);
-      if (!link) throw new AppError(MSG.NOT_LINKED_TO_SUBPHASE, 400);
+      if (!link) throw appError(MSG.NOT_LINKED_TO_SUBPHASE, 400);
     }
   }
 
@@ -320,8 +325,8 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
       .where(eq(timeEntries.id, data.id))
       .limit(1);
 
-    if (!existing) throw new AppError(MSG.NOT_FOUND, 404);
-    if (existing.userId !== data.userId) throw new AppError(MSG.NOT_OWNER, 403);
+    if (!existing) throw appError(MSG.NOT_FOUND, 404);
+    if (existing.userId !== data.userId) throw appError(MSG.NOT_OWNER, 403);
 
     // 8. Validate overlap (excluding self)
     await validateOverlap(data.userId, data.date, startTime, endTime, data.id);
@@ -367,13 +372,13 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
 
 export async function deleteTimeEntry(id: string, userId: string) {
   const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
-  if (!entry) throw new AppError(MSG.NOT_FOUND, 404);
-  if (entry.userId !== userId) throw new AppError(MSG.NOT_OWNER, 403);
+  if (!entry) throw appError(MSG.NOT_FOUND, 404);
+  if (entry.userId !== userId) throw appError(MSG.NOT_OWNER, 403);
 
   // Validate month is open
   const { year, month } = extractYearMonth(entry.date);
   const isOpen = await monthlyTimesheetService.isMonthOpen(userId, year, month);
-  if (!isOpen) throw new AppError(MSG.MONTH_CLOSED, 400);
+  if (!isOpen) throw appError(MSG.MONTH_CLOSED, 400);
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
 }

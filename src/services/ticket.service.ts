@@ -2,24 +2,24 @@ import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray } fr
 import { db } from '../db';
 import { tickets, ticketComments, ticketHistory, ticketAttachments, users, projects, clients, projectAllocations, files, timeEntries } from '../db/schema';
 import { deleteFile } from './file.service';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import { notifyTicketCreated, notifyTicketAssigned, notifyStatusChanged, notifyNewComment, notifyNewAttachment } from './ticket-notification.service';
 import { assertUserHasProjectAccess } from '../utils/project-access';
 
 const MSG = {
-  NOT_FOUND: 'Ticket não encontrado.',
-  PROJECT_NOT_FOUND: 'Projeto não encontrado.',
-  NO_ACCESS: 'Você não tem acesso a este projeto.',
-  INVALID_TRANSITION: 'Transição de status inválida.',
-  NO_PERMISSION: 'Você não tem permissão para realizar esta ação.',
-  COMMENT_EMPTY: 'O conteúdo do comentário é obrigatório.',
-  FILE_NOT_FOUND: 'Arquivo não encontrado.',
-  ATTACHMENT_NOT_FOUND: 'Anexo não encontrado.',
-  FINISHED_NOT_EDITABLE: 'Ticket finalizado não pode ser alterado.',
-  CLIENT_CANNOT_REOPEN: 'Cliente não pode reabrir ticket finalizado.',
-  CLIENT_NO_TIME_ACCESS: 'Cliente não tem acesso às horas do ticket.',
+  NOT_FOUND: { message: 'Ticket não encontrado.', code: 'TICKET_NOT_FOUND' },
+  PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'TICKET_PROJECT_NOT_FOUND' },
+  NO_ACCESS: { message: 'Você não tem acesso a este projeto.', code: 'TICKET_NO_ACCESS' },
+  INVALID_TRANSITION: { message: 'Transição de status inválida.', code: 'TICKET_INVALID_TRANSITION' },
+  NO_PERMISSION: { message: 'Você não tem permissão para realizar esta ação.', code: 'TICKET_NO_PERMISSION' },
+  COMMENT_EMPTY: { message: 'O conteúdo do comentário é obrigatório.', code: 'TICKET_COMMENT_EMPTY' },
+  FILE_NOT_FOUND: { message: 'Arquivo não encontrado.', code: 'TICKET_FILE_NOT_FOUND' },
+  ATTACHMENT_NOT_FOUND: { message: 'Anexo não encontrado.', code: 'TICKET_ATTACHMENT_NOT_FOUND' },
+  FINISHED_NOT_EDITABLE: { message: 'Ticket finalizado não pode ser alterado.', code: 'TICKET_FINISHED_NOT_EDITABLE' },
+  CLIENT_CANNOT_REOPEN: { message: 'Cliente não pode reabrir ticket finalizado.', code: 'TICKET_CLIENT_CANNOT_REOPEN' },
+  CLIENT_NO_TIME_ACCESS: { message: 'Cliente não tem acesso às horas do ticket.', code: 'TICKET_CLIENT_NO_TIME_ACCESS' },
 } as const;
 
 const ALL_STATUSES = ['open', 'in_analysis', 'awaiting_customer', 'awaiting_third_party', 'finished'];
@@ -59,7 +59,7 @@ async function generateTicketCode(projectId: string): Promise<string> {
     .where(eq(projects.id, projectId))
     .limit(1);
 
-  if (!project) throw new AppError(MSG.PROJECT_NOT_FOUND, 404);
+  if (!project) throw appError(MSG.PROJECT_NOT_FOUND, 404);
 
   let prefix = project.ticketPrefix;
   if (!prefix) {
@@ -83,7 +83,7 @@ async function recordHistory(ticketId: string, userId: string, field: string, ol
 
 function assertTicketEditable(ticket: { status: string }) {
   if (ticket.status === 'finished') {
-    throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+    throw appError(MSG.FINISHED_NOT_EDITABLE, 403);
   }
 }
 
@@ -222,21 +222,21 @@ async function getTicketByIdInternal(ticketId: string) {
 
 export async function getTicketById(ticketId: string, userId: string, userRole: string, userClientId?: string) {
   const ticket = await getTicketByIdInternal(ticketId);
-  if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!ticket) throw appError(MSG.NOT_FOUND, 404);
 
   // Check access
   if (userRole === 'client') {
-    if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!ticket.isVisibleToClient) throw appError(MSG.NOT_FOUND, 404);
     // Check client access
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
-    if (!userClientId || project?.clientId !== userClientId) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!userClientId || project?.clientId !== userClientId) throw appError(MSG.NOT_FOUND, 404);
   } else if (userRole === 'gestor' || userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
       .where(and(eq(projectAllocations.projectId, ticket.projectId), eq(projectAllocations.userId, userId)))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!allocation) throw appError(MSG.NOT_FOUND, 404);
   }
 
   return ticket;
@@ -372,20 +372,20 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   ccEmails: string[];
 }>) {
   const ticket = await getTicketByIdInternal(ticketId);
-  if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!ticket) throw appError(MSG.NOT_FOUND, 404);
 
   // Validate access
   if (userRole === 'client') {
-    if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!ticket.isVisibleToClient) throw appError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
-    if (!userClientId || project?.clientId !== userClientId) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!userClientId || project?.clientId !== userClientId) throw appError(MSG.NOT_FOUND, 404);
   } else if (userRole === 'gestor' || userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
       .where(and(eq(projectAllocations.projectId, ticket.projectId), eq(projectAllocations.userId, userId)))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!allocation) throw appError(MSG.NOT_FOUND, 404);
   }
 
   // Finished tickets are locked except for status changes by internal roles
@@ -393,10 +393,10 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
     const keys = Object.keys(data);
     const onlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
     if (!onlyStatusUpdate) {
-      throw new AppError(MSG.FINISHED_NOT_EDITABLE, 403);
+      throw appError(MSG.FINISHED_NOT_EDITABLE, 403);
     }
     if (userRole === 'client') {
-      throw new AppError(MSG.CLIENT_CANNOT_REOPEN, 403);
+      throw appError(MSG.CLIENT_CANNOT_REOPEN, 403);
     }
   }
 
@@ -406,10 +406,10 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
   if (data.status && data.status !== ticket.status) {
     const allowed = STATUS_TRANSITIONS[ticket.status];
     if (!allowed || !allowed.includes(data.status)) {
-      throw new AppError(MSG.INVALID_TRANSITION, 400);
+      throw appError(MSG.INVALID_TRANSITION, 400);
     }
     if (!canTransition(ticket.status, data.status, userRole)) {
-      throw new AppError(MSG.NO_PERMISSION, 403);
+      throw appError(MSG.NO_PERMISSION, 403);
     }
     updateData.status = data.status;
     await recordHistory(ticketId, userId, 'status', ticket.status, data.status);
@@ -426,14 +426,14 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
 
   // Priority
   if (data.priority !== undefined && data.priority !== ticket.priority) {
-    if (userRole === 'client') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole === 'client') throw appError(MSG.NO_PERMISSION, 403);
     updateData.priority = data.priority;
     await recordHistory(ticketId, userId, 'priority', ticket.priority, data.priority);
   }
 
   // Assigned to
   if (data.assignedTo !== undefined && data.assignedTo !== ticket.assignedTo) {
-    if (userRole !== 'gestor' && userRole !== 'super_admin' && userRole !== 'consultor') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole !== 'gestor' && userRole !== 'super_admin' && userRole !== 'consultor') throw appError(MSG.NO_PERMISSION, 403);
     updateData.assignedTo = data.assignedTo;
     const oldName = ticket.assignedToName || 'Nenhum';
     let newName = 'Nenhum';
@@ -446,7 +446,7 @@ export async function updateTicket(ticketId: string, userId: string, userRole: s
 
   // Visibility
   if (data.isVisibleToClient !== undefined && data.isVisibleToClient !== ticket.isVisibleToClient) {
-    if (userRole === 'client') throw new AppError(MSG.NO_PERMISSION, 403);
+    if (userRole === 'client') throw appError(MSG.NO_PERMISSION, 403);
     updateData.isVisibleToClient = data.isVisibleToClient;
     await recordHistory(ticketId, userId, 'is_visible_to_client', String(ticket.isVisibleToClient), String(data.isVisibleToClient));
   }
@@ -514,23 +514,23 @@ export async function addComment(data: {
   content: string;
   isInternal?: boolean;
 }) {
-  if (!data.content.trim()) throw new AppError(MSG.COMMENT_EMPTY, 400);
+  if (!data.content.trim()) throw appError(MSG.COMMENT_EMPTY, 400);
 
   // Validate ticket access
   const ticket = await getTicketByIdInternal(data.ticketId);
-  if (!ticket) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!ticket) throw appError(MSG.NOT_FOUND, 404);
 
   if (data.userRole === 'client') {
-    if (!ticket.isVisibleToClient) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!ticket.isVisibleToClient) throw appError(MSG.NOT_FOUND, 404);
     const [project] = await db.select({ clientId: projects.clientId }).from(projects).where(eq(projects.id, ticket.projectId)).limit(1);
-    if (!data.userClientId || project?.clientId !== data.userClientId) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!data.userClientId || project?.clientId !== data.userClientId) throw appError(MSG.NOT_FOUND, 404);
   } else if (data.userRole === 'gestor' || data.userRole === 'consultor') {
     const [allocation] = await db
       .select({ id: projectAllocations.id })
       .from(projectAllocations)
       .where(and(eq(projectAllocations.projectId, ticket.projectId), eq(projectAllocations.userId, data.userId)))
       .limit(1);
-    if (!allocation) throw new AppError(MSG.NOT_FOUND, 404);
+    if (!allocation) throw appError(MSG.NOT_FOUND, 404);
   }
 
   assertTicketEditable(ticket);
@@ -616,7 +616,7 @@ export async function addAttachment(data: {
   assertTicketEditable(ticket);
 
   const [file] = await db.select({ id: files.id, originalName: files.originalName }).from(files).where(eq(files.id, data.fileId)).limit(1);
-  if (!file) throw new AppError(MSG.FILE_NOT_FOUND, 404);
+  if (!file) throw appError(MSG.FILE_NOT_FOUND, 404);
 
   const [attachment] = await db.insert(ticketAttachments).values({
     ticketId: data.ticketId,
@@ -639,14 +639,14 @@ export async function removeAttachment(ticketId: string, attachmentId: string, u
     .where(and(eq(ticketAttachments.id, attachmentId), eq(ticketAttachments.ticketId, ticketId)))
     .limit(1);
 
-  if (!attachment) throw new AppError(MSG.ATTACHMENT_NOT_FOUND, 404);
+  if (!attachment) throw appError(MSG.ATTACHMENT_NOT_FOUND, 404);
 
   const [ticketRow] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticketId)).limit(1);
-  if (!ticketRow) throw new AppError(MSG.NOT_FOUND, 404);
+  if (!ticketRow) throw appError(MSG.NOT_FOUND, 404);
   assertTicketEditable(ticketRow);
 
   if (attachment.uploadedBy !== userId && userRole !== 'gestor' && userRole !== 'super_admin') {
-    throw new AppError(MSG.NO_PERMISSION, 403);
+    throw appError(MSG.NO_PERMISSION, 403);
   }
 
   await db.delete(ticketAttachments).where(eq(ticketAttachments.id, attachmentId));
@@ -681,7 +681,7 @@ export async function listAttachments(ticketId: string) {
 
 export async function listTicketTimeEntries(ticketId: string, userId: string, userRole: string, userClientId?: string) {
   if (userRole === 'client') {
-    throw new AppError(MSG.CLIENT_NO_TIME_ACCESS, 403);
+    throw appError(MSG.CLIENT_NO_TIME_ACCESS, 403);
   }
   await getTicketById(ticketId, userId, userRole, userClientId);
 

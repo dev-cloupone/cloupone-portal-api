@@ -1,7 +1,7 @@
 import { eq, ne, and, sql, count as drizzleCount, lt, desc } from 'drizzle-orm';
 import { db } from '../db';
 import { monthlyTimesheets, timeEntries, users, projects, tickets } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import { logger } from '../utils/logger';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -9,12 +9,13 @@ import * as consultantPaymentService from './consultant-payment.service';
 import * as invoiceService from './invoice.service';
 
 const MSG = {
-  NOT_FOUND: 'Timesheet mensal não encontrado.',
-  ALREADY_APPROVED: 'Este mês já está aprovado.',
-  NOT_APPROVED: 'Apenas meses aprovados podem ser reabertos.',
-  NOT_OPEN: 'Este mês não está aberto para edição.',
-  FORBIDDEN: 'Você não tem permissão para esta ação.',
-  REASON_REQUIRED: 'Motivo da reabertura é obrigatório.',
+  NOT_FOUND: { message: 'Timesheet mensal não encontrado.', code: 'MONTHLY_TIMESHEET_NOT_FOUND' },
+  ALREADY_APPROVED: { message: 'Este mês já está aprovado.', code: 'MONTHLY_TIMESHEET_ALREADY_APPROVED' },
+  NOT_APPROVED: { message: 'Apenas meses aprovados podem ser reabertos.', code: 'MONTHLY_TIMESHEET_NOT_APPROVED' },
+  NOT_OPEN: { message: 'Este mês não está aberto para edição.', code: 'MONTHLY_TIMESHEET_NOT_OPEN' },
+  FORBIDDEN: { message: 'Você não tem permissão para esta ação.', code: 'MONTHLY_TIMESHEET_FORBIDDEN' },
+  REASON_REQUIRED: { message: 'Motivo da reabertura é obrigatório.', code: 'MONTHLY_TIMESHEET_REASON_REQUIRED' },
+  PAYMENT_LOCKED: { message: 'Timesheet travado por pagamento confirmado. Cancele o pagamento primeiro.', code: 'MONTHLY_TIMESHEET_PAYMENT_LOCKED' },
 } as const;
 
 export async function getIfExists(userId: string, year: number, month: number) {
@@ -183,7 +184,7 @@ export async function approve(userId: string, year: number, month: number, appro
   const timesheet = await getOrCreate(userId, year, month);
 
   if (timesheet.status === 'approved') {
-    throw new AppError(MSG.ALREADY_APPROVED, 400);
+    throw appError(MSG.ALREADY_APPROVED, 400);
   }
 
   const [updated] = await db
@@ -219,17 +220,17 @@ export async function approve(userId: string, year: number, month: number, appro
 
 export async function reopen(userId: string, year: number, month: number, reopenedById: string, reason: string) {
   if (!reason?.trim()) {
-    throw new AppError(MSG.REASON_REQUIRED, 400);
+    throw appError(MSG.REASON_REQUIRED, 400);
   }
 
   const timesheet = await getOrCreate(userId, year, month);
 
   if (timesheet.status !== 'approved') {
-    throw new AppError(MSG.NOT_APPROVED, 400);
+    throw appError(MSG.NOT_APPROVED, 400);
   }
 
   if (timesheet.paymentLocked) {
-    throw new AppError('Timesheet travado por pagamento confirmado. Cancele o pagamento primeiro.', 400);
+    throw appError(MSG.PAYMENT_LOCKED, 400);
   }
 
   const [updated] = await db

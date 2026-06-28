@@ -1,14 +1,14 @@
 import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { consultantProfiles, users, projectAllocations, projects, clients } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 
 const CONSULTANT = {
-  NOT_FOUND: 'Perfil de consultor não encontrado.',
-  USER_NOT_FOUND: 'Usuário não encontrado.',
-  ALREADY_EXISTS: 'Este usuário já possui perfil de consultor.',
+  NOT_FOUND: { message: 'Perfil de consultor não encontrado.', code: 'CONSULTANT_PROFILE_NOT_FOUND' },
+  USER_NOT_FOUND: { message: 'Usuário não encontrado.', code: 'USER_NOT_FOUND' },
+  ALREADY_EXISTS: { message: 'Este usuário já possui perfil de consultor.', code: 'CONSULTANT_PROFILE_ALREADY_EXISTS' },
 } as const;
 
 export async function listConsultants(params: PaginationParams) {
@@ -57,19 +57,19 @@ export async function getConsultantByUserId(userId: string) {
     .where(eq(consultantProfiles.userId, userId))
     .limit(1);
 
-  if (!profile) throw new AppError(CONSULTANT.NOT_FOUND, 404);
+  if (!profile) throw appError(CONSULTANT.NOT_FOUND, 404);
   return profile;
 }
 
 export async function createConsultant(data: { userId: string; hourlyRate: number; contractType: string; allowOverlappingEntries?: boolean }) {
   const [user] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, data.userId)).limit(1);
-  if (!user) throw new AppError(CONSULTANT.USER_NOT_FOUND, 404);
+  if (!user) throw appError(CONSULTANT.USER_NOT_FOUND, 404);
 
   const [existing] = await db.select({ id: consultantProfiles.id })
     .from(consultantProfiles)
     .where(eq(consultantProfiles.userId, data.userId))
     .limit(1);
-  if (existing) throw new AppError(CONSULTANT.ALREADY_EXISTS, 409);
+  if (existing) throw appError(CONSULTANT.ALREADY_EXISTS, 409);
 
   return db.transaction(async (tx) => {
     const [profile] = await tx.insert(consultantProfiles).values({
@@ -96,7 +96,7 @@ export async function updateConsultant(userId: string, data: Partial<{ hourlyRat
     .from(consultantProfiles)
     .where(eq(consultantProfiles.userId, userId))
     .limit(1);
-  if (!existing) throw new AppError(CONSULTANT.NOT_FOUND, 404);
+  if (!existing) throw appError(CONSULTANT.NOT_FOUND, 404);
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (data.hourlyRate !== undefined) updateData.hourlyRate = String(data.hourlyRate);

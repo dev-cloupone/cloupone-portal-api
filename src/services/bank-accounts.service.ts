@@ -1,7 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { bankAccounts } from '../db/schema';
-import { AppError } from '../utils/app-error';
+import { appError } from '../utils/app-error';
+
+const MSG = {
+  NOT_FOUND: { message: 'Conta bancaria nao encontrada', code: 'BANK_ACCOUNT_NOT_FOUND' },
+} as const;
 
 export async function list(includeInactive = false) {
   if (includeInactive) {
@@ -27,7 +31,7 @@ export async function getById(id: string) {
   const result = await db.query.bankAccounts.findFirst({
     where: eq(bankAccounts.id, id),
   });
-  if (!result) throw new AppError('Conta bancaria nao encontrada', 404);
+  if (!result) throw appError(MSG.NOT_FOUND, 404);
   return result;
 }
 
