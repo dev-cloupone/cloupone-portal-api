@@ -14,7 +14,7 @@ vi.mock('../../db/schema', () => ({
     isVisibleToClient: 'isVisibleToClient', ccEmails: 'ccEmails',
   },
   ticketComments: { id: 'id', userId: 'userId', content: 'content' },
-  users: { id: 'id', name: 'name', email: 'email', role: 'role', isActive: 'isActive' },
+  users: { id: 'id', name: 'name', email: 'email', role: 'role', isActive: 'isActive', locale: 'locale' },
   projects: { id: 'id', name: 'name' },
   clients: { id: 'id', companyName: 'companyName' },
   projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId' },
@@ -69,12 +69,15 @@ import {
   notifyTicketAssigned, notifyNewAttachment,
 } from '../ticket-notification.service'
 import { db } from '../../db'
+import { buildTicketCreatedEmail } from '../../emails/ticket-created'
+import { buildTicketCommentEmail } from '../../emails/ticket-comment'
 
 const mockTicketData = {
   id: 't1', code: 'PRJ-001', title: 'Bug no login', type: 'system_error',
   status: 'open', isVisibleToClient: true, ccEmails: [],
   projectId: 'p1', projectName: 'Projeto Alpha',
   createdBy: 'u-creator', assignedTo: 'u-assignee',
+  creatorLocale: 'pt-BR',
 }
 
 describe('notifyTicketCreated', () => {
@@ -120,6 +123,25 @@ describe('notifyTicketCreated', () => {
     // No managers, but CC should be sent
     expect(mockSend).toHaveBeenCalledTimes(1)
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'external@company.com' }))
+  })
+
+  it('builds CC email using ticket creator locale', async () => {
+    const ticketWithCc = { ...mockTicketData, isVisibleToClient: true, ccEmails: ['external@company.com'], creatorLocale: 'en-US' }
+    const ticketChain = createChain([ticketWithCc])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor', locale: 'en-US' }])
+    const managersChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(managersChain as never)
+
+    await notifyTicketCreated('t1')
+
+    // CC email should be built with creator's locale (en-US)
+    const calls = vi.mocked(buildTicketCreatedEmail).mock.calls
+    const ccCall = calls[calls.length - 1][0]
+    expect(ccCall).toHaveProperty('locale', 'en-US')
   })
 
   it('does not include CC when ticket is not visible to client', async () => {
@@ -190,6 +212,29 @@ describe('notifyNewComment', () => {
     expect(mockSend).toHaveBeenCalledTimes(2)
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'joao@test.com' }))
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'pedro@test.com' }))
+  })
+
+  it('builds CC email using ticket creator locale', async () => {
+    const ticketWithCc = { ...mockTicketData, ccEmails: ['ext@test.com'], creatorLocale: 'en-US' }
+    const ticketChain = createChain([ticketWithCc])
+    const commentChain = createChain([{ id: 'c1', userId: 'u-other', content: 'A comment' }])
+    const authorChain = createChain([{ id: 'u-other', name: 'Carlos', email: 'carlos@test.com', role: 'gestor' }])
+    const recipientsChain = createChain([
+      { id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor', locale: 'en-US' },
+    ])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(commentChain as never)
+      .mockReturnValueOnce(authorChain as never)
+      .mockReturnValueOnce(recipientsChain as never)
+
+    await notifyNewComment('t1', 'c1', false)
+
+    // CC email should be built with creator's locale (en-US)
+    const calls = vi.mocked(buildTicketCommentEmail).mock.calls
+    const ccCall = calls[calls.length - 1][0]
+    expect(ccCall).toHaveProperty('locale', 'en-US')
   })
 
   it('skips CC for internal comments', async () => {

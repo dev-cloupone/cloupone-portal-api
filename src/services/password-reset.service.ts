@@ -10,6 +10,7 @@ import { PASSWORD_RESET } from '../utils/error-messages';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { buildPasswordResetEmail } from '../emails';
+import { toLocale } from '../emails/translations';
 
 const SALT_ROUNDS = 12;
 const DEFAULT_EXPIRY_MINUTES = 60;
@@ -68,6 +69,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
       resetUrl,
       expiryMinutes,
       appName,
+      locale: toLocale(user.locale),
     });
 
     const emailProvider = getEmailProvider();

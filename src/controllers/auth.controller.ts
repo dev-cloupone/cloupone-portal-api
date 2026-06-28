@@ -85,6 +85,7 @@ const getMe: RequestHandler = async (req, res, next) => {
 const updateMeSchema = z.object({
   name: z.string().min(1, V.required('Nome')).optional(),
   email: z.string().email(V.emailInvalid).optional(),
+  locale: z.enum(['pt-BR', 'en-US']).optional(),
 });
 
 const updateMe: RequestHandler = async (req, res, next) => {
