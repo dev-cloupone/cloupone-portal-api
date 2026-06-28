@@ -61,7 +61,7 @@ import { requestPasswordReset, resetPassword } from '../password-reset.service'
 import { db } from '../../db'
 
 const mockUser = {
-  id: 'u1', name: 'Test', email: 'test@test.com', isActive: true, passwordHash: 'hashed-pw',
+  id: 'u1', name: 'Test', email: 'test@test.com', isActive: true, passwordHash: 'hashed-pw', locale: 'pt-BR',
 }
 
 describe('requestPasswordReset', () => {

@@ -12,6 +12,7 @@ export const users = pgTable('users', {
   isActive: boolean('is_active').default(true).notNull(),
   mustChangePassword: boolean('must_change_password').default(false).notNull(),
   avatarFileId: uuid('avatar_file_id'),
+  locale: varchar('locale', { length: 5 }).default('pt-BR').notNull(),
   clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

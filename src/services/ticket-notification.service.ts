@@ -9,6 +9,7 @@ import { buildTicketCommentEmail } from '../emails/ticket-comment';
 import { buildTicketAttachmentEmail } from '../emails/ticket-attachment';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { toLocale } from '../emails/translations';
 
 function getTicketUrl(ticketId: string): string {
   return `${env.FRONTEND_URL}/tickets/${ticketId}`;
@@ -59,7 +60,7 @@ async function sendToCcRecipients(
 
 async function getUserData(userId: string) {
   const [user] = await db
-    .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+    .select({ id: users.id, name: users.name, email: users.email, role: users.role, locale: users.locale })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -76,7 +77,7 @@ export async function notifyTicketCreated(ticketId: string) {
 
     // Only gestors allocated to the ticket's project receive notifications
     const managers = await db
-      .select({ id: users.id, name: users.name, email: users.email })
+      .select({ id: users.id, name: users.name, email: users.email, locale: users.locale })
       .from(users)
       .innerJoin(projectAllocations, and(
         eq(projectAllocations.userId, users.id),
@@ -97,6 +98,7 @@ export async function notifyTicketCreated(ticketId: string) {
         ticketType: ticket.type,
         createdByName: creator.name,
         ticketUrl,
+        locale: toLocale(manager.locale),
       });
 
       await emailProvider.send({
@@ -145,6 +147,7 @@ export async function notifyTicketAssigned(ticketId: string, assignedBy: string)
       projectName: ticket.projectName,
       assignedByName: assigner.name,
       ticketUrl,
+      locale: toLocale(assignee.locale),
     });
 
     const emailProvider = getEmailProvider();
@@ -188,7 +191,7 @@ export async function notifyStatusChanged(ticketId: string, oldStatus: string, n
 
     if (recipientIds.size > 0) {
       const recipients = await db
-        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role, locale: users.locale })
         .from(users)
         .where(inArray(users.id, [...recipientIds]));
 
@@ -204,6 +207,7 @@ export async function notifyStatusChanged(ticketId: string, oldStatus: string, n
           newStatus,
           changedByName: changer.name,
           ticketUrl,
+          locale: toLocale(recipient.locale),
         });
 
         await emailProvider.send({
@@ -262,7 +266,7 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
 
     if (recipientIds.size > 0) {
       const recipients = await db
-        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role, locale: users.locale })
         .from(users)
         .where(inArray(users.id, [...recipientIds]));
 
@@ -279,6 +283,7 @@ export async function notifyNewComment(ticketId: string, commentId: string, isIn
           commentAuthorName: author.name,
           commentPreview,
           ticketUrl,
+          locale: toLocale(recipient.locale),
         });
 
         await emailProvider.send({
@@ -323,7 +328,7 @@ export async function notifyNewAttachment(ticketId: string, uploadedBy: string, 
 
     if (recipientIds.size > 0) {
       const recipients = await db
-        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role, locale: users.locale })
         .from(users)
         .where(inArray(users.id, [...recipientIds]));
 
@@ -338,6 +343,7 @@ export async function notifyNewAttachment(ticketId: string, uploadedBy: string, 
           uploaderName: uploader.name,
           fileName,
           ticketUrl,
+          locale: toLocale(recipient.locale),
         });
 
         await emailProvider.send({

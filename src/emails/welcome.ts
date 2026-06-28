@@ -1,5 +1,6 @@
 import { buildEmailLayout } from '../utils/email-layout';
 import { escapeHtml } from '../utils/escape-html';
+import { t, type Locale } from './translations';
 
 interface WelcomeEmailParams {
   name: string;
@@ -7,50 +8,52 @@ interface WelcomeEmailParams {
   tempPassword: string;
   appName: string;
   loginUrl: string;
+  locale?: Locale;
 }
 
-export function buildWelcomeEmail({ name, email, tempPassword, appName, loginUrl }: WelcomeEmailParams): { subject: string; html: string; text: string } {
+export function buildWelcomeEmail({ name, email, tempPassword, appName, loginUrl, locale = 'pt-BR' }: WelcomeEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: `Cloup One | Bem-vindo(a)`,
+    subject: t(locale, 'welcome.subject'),
     text: [
-      `Olá, ${name}!`,
+      t(locale, 'welcome.greetingText', { name }),
       '',
-      `Sua conta no ${appName} foi criada com sucesso.`,
+      t(locale, 'welcome.accountCreated', { appName }),
       '',
-      'Suas credenciais de acesso:',
-      `Email: ${email}`,
-      `Senha temporária: ${tempPassword}`,
+      t(locale, 'welcome.credentials'),
+      `${t(locale, 'welcome.email')} ${email}`,
+      `${t(locale, 'welcome.tempPassword')} ${tempPassword}`,
       '',
-      `Acesse: ${loginUrl}`,
+      `${t(locale, 'welcome.access')} ${loginUrl}`,
       '',
-      'Por segurança, você deverá alterar sua senha no primeiro acesso.',
+      t(locale, 'welcome.warningText'),
     ].join('\n'),
     html: buildEmailLayout({
-      title: `Bem-vindo(a) ao ${appName}`,
+      title: t(locale, 'welcome.heading', { appName }),
+      locale,
       body: `
         <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#0F172A;">
-          Bem-vindo(a) ao ${escapeHtml(appName)}!
+          ${t(locale, 'welcome.heading', { appName: escapeHtml(appName) })}
         </h2>
         <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6;">
-          Olá, <strong>${escapeHtml(name)}</strong>! Sua conta foi criada com sucesso.
+          ${t(locale, 'welcome.greeting', { name: escapeHtml(name) })}
         </p>
         <div style="background-color:#f5f7ff;border:1px solid #e0e3f0;border-radius:8px;padding:20px;margin-bottom:24px;">
-          <p style="margin:0 0 8px;font-size:14px;color:#334155;font-weight:600;">Suas credenciais de acesso:</p>
-          <p style="margin:0 0 4px;font-size:14px;color:#334155;">Email: <strong>${escapeHtml(email)}</strong></p>
-          <p style="margin:0;font-size:14px;color:#334155;">Senha temporária: <strong>${escapeHtml(tempPassword)}</strong></p>
+          <p style="margin:0 0 8px;font-size:14px;color:#334155;font-weight:600;">${t(locale, 'welcome.credentials')}</p>
+          <p style="margin:0 0 4px;font-size:14px;color:#334155;">${t(locale, 'welcome.email')} <strong>${escapeHtml(email)}</strong></p>
+          <p style="margin:0;font-size:14px;color:#334155;">${t(locale, 'welcome.tempPassword')} <strong>${escapeHtml(tempPassword)}</strong></p>
         </div>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td align="center" style="padding-bottom:28px;">
               <a href="${loginUrl}" style="display:inline-block;padding:14px 32px;background-color:#3B82F6;color:#ffffff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;letter-spacing:0.2px;">
-                Acessar Plataforma
+                ${t(locale, 'welcome.button')}
               </a>
             </td>
           </tr>
         </table>
         <div style="border-top:1px solid #e0e3f0;padding-top:24px;">
           <p style="margin:0;font-size:14px;color:#64748B;line-height:1.6;">
-            Por segurança, você deverá <strong>alterar sua senha</strong> no primeiro acesso.
+            ${t(locale, 'welcome.warning')}
           </p>
         </div>`,
     }),

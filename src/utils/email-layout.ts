@@ -1,14 +1,19 @@
-export const SUPPORT_CONTACT_TEXT = 'Dúvidas? Entre em contato com o suporte.';
+import { t, type Locale } from '../emails/translations';
+
+export function getSupportContactText(locale: Locale): string {
+  return t(locale, 'layout.support');
+}
 
 interface EmailLayoutParams {
   title: string;
   body: string;
+  locale?: Locale;
 }
 
-export function buildEmailLayout({ title, body }: EmailLayoutParams): string {
+export function buildEmailLayout({ title, body, locale = 'pt-BR' }: EmailLayoutParams): string {
   return `
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="${locale}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -37,10 +42,10 @@ export function buildEmailLayout({ title, body }: EmailLayoutParams): string {
           <tr>
             <td style="background-color:#f5f7ff;border-top:1px solid #e0e3f0;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:12px;color:#94A3B8;line-height:1.5;">
-                ${SUPPORT_CONTACT_TEXT}
+                ${t(locale, 'layout.support')}
               </p>
               <p style="margin:8px 0 0;font-size:11px;color:#CBD5E1;">
-                &copy; ${new Date().getFullYear()} Cloup One. Todos os direitos reservados.
+                &copy; ${new Date().getFullYear()} Cloup One. ${t(locale, 'layout.copyright')}
               </p>
             </td>
           </tr>

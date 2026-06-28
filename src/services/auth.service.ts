@@ -11,6 +11,7 @@ import { AUTH } from '../utils/error-messages';
 import { getSettingsMap } from './platform-settings.service';
 import { getEmailProvider } from '../providers/email';
 import { buildPasswordChangedEmail } from '../emails';
+import { toLocale } from '../emails/translations';
 import { logger } from '../utils/logger';
 import * as loginHistoryService from './login-history.service';
 
@@ -89,6 +90,7 @@ export async function login(
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      locale: user.locale,
     },
   };
 }
@@ -152,11 +154,12 @@ export async function getMe(userId: string) {
     isActive: user.isActive,
     mustChangePassword: user.mustChangePassword,
     avatarFileId: user.avatarFileId,
+    locale: user.locale,
     createdAt: user.createdAt,
   };
 }
 
-export async function updateMe(userId: string, data: { name?: string; email?: string }) {
+export async function updateMe(userId: string, data: { name?: string; email?: string; locale?: string }) {
   const [updated] = await db.update(users)
     .set({ ...data, updatedAt: new Date() })
     .where(eq(users.id, userId))
@@ -172,6 +175,7 @@ export async function updateMe(userId: string, data: { name?: string; email?: st
     email: updated.email,
     role: updated.role,
     isActive: updated.isActive,
+    locale: updated.locale,
     createdAt: updated.createdAt,
   };
 }
@@ -203,10 +207,12 @@ export async function changePassword(userId: string, currentPassword: string, ne
   try {
     const settings = await getSettingsMap();
     const appName = settings['app_name'] || 'Template Base';
+    const userLocale = toLocale(user.locale);
     const emailData = buildPasswordChangedEmail({
       name: user.name,
       appName,
-      timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      timestamp: new Date().toLocaleString(userLocale, { timeZone: 'America/Sao_Paulo' }),
+      locale: userLocale,
     });
 
     const emailProvider = getEmailProvider();

@@ -14,7 +14,7 @@ vi.mock('../../db/schema', () => ({
     isVisibleToClient: 'isVisibleToClient', ccEmails: 'ccEmails',
   },
   ticketComments: { id: 'id', userId: 'userId', content: 'content' },
-  users: { id: 'id', name: 'name', email: 'email', role: 'role', isActive: 'isActive' },
+  users: { id: 'id', name: 'name', email: 'email', role: 'role', isActive: 'isActive', locale: 'locale' },
   projects: { id: 'id', name: 'name' },
   clients: { id: 'id', companyName: 'companyName' },
   projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId' },

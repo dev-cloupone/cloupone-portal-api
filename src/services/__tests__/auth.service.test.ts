@@ -66,6 +66,7 @@ const mockUser = {
   mustChangePassword: false,
   clientId: null,
   avatarFileId: null,
+  locale: 'pt-BR',
   createdAt: new Date(),
   updatedAt: new Date(),
 }

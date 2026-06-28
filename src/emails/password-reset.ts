@@ -1,54 +1,57 @@
-import { buildEmailLayout, SUPPORT_CONTACT_TEXT } from '../utils/email-layout';
+import { buildEmailLayout, getSupportContactText } from '../utils/email-layout';
 import { escapeHtml } from '../utils/escape-html';
+import { t, type Locale } from './translations';
 
 interface PasswordResetEmailParams {
   name: string;
   resetUrl: string;
   expiryMinutes: number;
   appName: string;
+  locale?: Locale;
 }
 
-export function buildPasswordResetEmail({ name, resetUrl, expiryMinutes }: PasswordResetEmailParams): { subject: string; html: string; text: string } {
+export function buildPasswordResetEmail({ name, resetUrl, expiryMinutes, locale = 'pt-BR' }: PasswordResetEmailParams): { subject: string; html: string; text: string } {
   return {
-    subject: 'Cloup One | Redefinição de senha',
+    subject: t(locale, 'passwordReset.subject'),
     text: [
-      `Olá, ${name}!`,
+      t(locale, 'welcome.greetingText', { name }),
       '',
-      'Recebemos uma solicitação para redefinir sua senha.',
+      t(locale, 'passwordReset.greetingText'),
       '',
-      'Clique no link abaixo para criar uma nova senha:',
+      t(locale, 'passwordReset.linkInstruction'),
       resetUrl,
       '',
-      `Este link expira em ${expiryMinutes} minutos.`,
+      t(locale, 'passwordReset.expiryText', { minutes: String(expiryMinutes) }),
       '',
-      'Se você não solicitou esta redefinição, ignore este email.',
+      t(locale, 'passwordReset.ignore'),
       '',
-      SUPPORT_CONTACT_TEXT,
+      getSupportContactText(locale),
     ].join('\n'),
     html: buildEmailLayout({
-      title: 'Redefinição de Senha',
+      title: t(locale, 'passwordReset.heading'),
+      locale,
       body: `
         <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#0F172A;">
-          Redefinição de Senha
+          ${t(locale, 'passwordReset.heading')}
         </h2>
         <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6;">
-          Olá, <strong>${escapeHtml(name)}</strong>! Recebemos uma solicitação para redefinir sua senha.
+          ${t(locale, 'passwordReset.greeting', { name: escapeHtml(name) })}
         </p>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td align="center" style="padding-bottom:28px;">
               <a href="${resetUrl}" style="display:inline-block;padding:14px 32px;background-color:#3B82F6;color:#ffffff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;letter-spacing:0.2px;">
-                Redefinir Senha
+                ${t(locale, 'passwordReset.button')}
               </a>
             </td>
           </tr>
         </table>
         <div style="border-top:1px solid #e0e3f0;padding-top:24px;">
           <p style="margin:0 0 8px;font-size:14px;color:#64748B;line-height:1.6;">
-            Este link expira em <strong>${expiryMinutes} minutos</strong>.
+            ${t(locale, 'passwordReset.expiry', { minutes: String(expiryMinutes) })}
           </p>
           <p style="margin:0;font-size:14px;color:#64748B;line-height:1.6;">
-            Se você não solicitou esta redefinição, ignore este email.
+            ${t(locale, 'passwordReset.ignore')}
           </p>
         </div>`,
     }),
