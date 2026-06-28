@@ -238,7 +238,7 @@ export function t(locale: Locale, key: string, params?: Record<string, string | 
   let text = translations[locale]?.[key] ?? translations['pt-BR'][key] ?? key;
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      text = text.replaceAll(`{{${k}}}`, String(v));
+      text = text.split(`{{${k}}}`).join(String(v));
     }
   }
   return text;

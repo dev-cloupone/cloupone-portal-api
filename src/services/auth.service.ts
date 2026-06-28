@@ -46,7 +46,7 @@ export async function login(
   email: string,
   password: string,
   meta: { ipAddress: string; userAgent: string },
-): Promise<{ tokens: TokenPair; user: { id: string; name: string; email: string; role: string; mustChangePassword: boolean } }> {
+): Promise<{ tokens: TokenPair; user: { id: string; name: string; email: string; role: string; mustChangePassword: boolean; locale: string } }> {
   const user = await db.query.users.findFirst({
     where: eq(users.email, email),
   });
