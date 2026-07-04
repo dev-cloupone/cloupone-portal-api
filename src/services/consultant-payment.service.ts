@@ -9,7 +9,11 @@ import {
   users,
   projects,
 } from '../db/schema';
-import { getNextMonth } from './invoice.service';
+function getNextMonth(year: number, month: number): { billingYear: number; billingMonth: number } {
+  return month === 12
+    ? { billingYear: year + 1, billingMonth: 1 }
+    : { billingYear: year, billingMonth: month + 1 };
+}
 import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
