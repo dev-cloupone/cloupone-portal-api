@@ -15,6 +15,8 @@ export const invoices = pgTable('invoices', {
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
   year: integer('year').notNull(),
   month: integer('month').notNull(),
+  billingYear: integer('billing_year').notNull(),
+  billingMonth: integer('billing_month').notNull(),
   status: invoiceStatusEnum('status').notNull().default('draft'),
   invoiceType: invoiceTypeEnum('invoice_type').notNull().default('hourly'),
   clientName: varchar('client_name', { length: 255 }).notNull(),
@@ -36,6 +38,7 @@ export const invoices = pgTable('invoices', {
   index('invoices_project_idx').on(table.projectId),
   index('invoices_status_idx').on(table.status),
   index('invoices_invoice_type_idx').on(table.invoiceType),
+  index('invoices_billing_period_idx').on(table.billingYear, table.billingMonth),
 ]);
 
 export const invoiceLines = pgTable('invoice_lines', {

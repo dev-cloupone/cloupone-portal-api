@@ -13,7 +13,7 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('../../db/schema', () => ({
   consultantPayments: {
-    id: 'id', userId: 'userId', year: 'year', month: 'month', status: 'status',
+    id: 'id', userId: 'userId', year: 'year', month: 'month', billingYear: 'billingYear', billingMonth: 'billingMonth', status: 'status',
     totalHours: 'totalHours', totalAmount: 'totalAmount', receiptFileId: 'receiptFileId',
     confirmedAt: 'confirmedAt', confirmedBy: 'confirmedBy',
     paidAt: 'paidAt', paidBy: 'paidBy',

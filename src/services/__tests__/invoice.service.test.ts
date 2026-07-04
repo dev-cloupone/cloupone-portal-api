@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { AppError } from '../../utils/app-error'
 
 vi.mock('drizzle-orm', () => ({
@@ -15,7 +15,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../../db/schema', () => ({
   invoices: {
     id: 'id', invoiceNumber: 'invoiceNumber', clientId: 'clientId', projectId: 'projectId',
-    year: 'year', month: 'month', status: 'status',
+    year: 'year', month: 'month', billingYear: 'billingYear', billingMonth: 'billingMonth', status: 'status',
     totalHours: 'totalHours', totalAmount: 'totalAmount',
     clientName: 'clientName', clientCnpj: 'clientCnpj',
     issuedAt: 'issuedAt', issuedBy: 'issuedBy',
@@ -94,6 +94,24 @@ import { db } from '../../db'
 beforeEach(() => vi.clearAllMocks())
 
 // ─── generateDraft ──────────────────────────────────────────────────────────
+
+describe('getNextMonth', () => {
+  // getNextMonth is a pure function — import actual to bypass mocks
+  let getNextMonth: (year: number, month: number) => { billingYear: number; billingMonth: number };
+
+  beforeAll(async () => {
+    const actual = await vi.importActual<typeof import('../invoice.service')>('../invoice.service');
+    getNextMonth = actual.getNextMonth;
+  });
+
+  it('returns next month in same year', () => {
+    expect(getNextMonth(2024, 6)).toEqual({ billingYear: 2024, billingMonth: 7 });
+  });
+
+  it('rolls over December to January of next year', () => {
+    expect(getNextMonth(2024, 12)).toEqual({ billingYear: 2025, billingMonth: 1 });
+  });
+});
 
 describe('generateDraft', () => {
   beforeEach(() => {

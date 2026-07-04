@@ -18,6 +18,12 @@ import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import { formatBRL } from '../utils/format-currency';
 
+export function getNextMonth(year: number, month: number): { billingYear: number; billingMonth: number } {
+  return month === 12
+    ? { billingYear: year + 1, billingMonth: 1 }
+    : { billingYear: year, billingMonth: month + 1 };
+}
+
 const MONTH_NAMES = [
   'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
@@ -221,11 +227,13 @@ export async function generateDraft(projectId: string, year: number, month: numb
     if (entries.length === 0) throw appError(MSG.NO_ENTRIES, 400);
 
     // Create invoice
+    const billing = getNextMonth(year, month);
     const [invoice] = await tx.insert(invoices).values({
       clientId: project.clientId,
       projectId,
       year,
       month,
+      ...billing,
       status: 'draft',
       invoiceType: 'hourly',
       clientName: project.clientName,
@@ -325,67 +333,40 @@ async function regenerateInvoiceDraftForProject(projectId: string, consultantId:
         ne(invoices.status, 'cancelled'),
       ));
 
-    let targetInvoiceId: string;
-
-    if (existingInvoices.length === 0) {
-      // No invoice → create new draft
-      const [project] = await tx.select({
-        clientId: projects.clientId,
-        clientName: clients.companyName,
-        clientCnpj: clients.cnpj,
-      })
-        .from(projects)
-        .innerJoin(clients, eq(projects.clientId, clients.id))
-        .where(eq(projects.id, projectId))
-        .limit(1);
-
-      if (!project) return;
-
-      const [newInvoice] = await tx.insert(invoices).values({
-        clientId: project.clientId,
-        projectId,
-        year,
-        month,
-        status: 'draft',
-        clientName: project.clientName,
-        clientCnpj: project.clientCnpj,
-        createdBy: triggeredBy,
-      }).returning();
-
-      targetInvoiceId = newInvoice.id;
-    } else {
-      // Find a draft among existing invoices
-      const draftInvoice = existingInvoices.find(i => i.status === 'draft');
-      if (draftInvoice) {
-        targetInvoiceId = draftInvoice.id;
-      } else {
-        // All are issued/paid → create new draft for unfilled hours
-        const [project] = await tx.select({
-          clientId: projects.clientId,
-          clientName: clients.companyName,
-          clientCnpj: clients.cnpj,
-        })
-          .from(projects)
-          .innerJoin(clients, eq(projects.clientId, clients.id))
-          .where(eq(projects.id, projectId))
-          .limit(1);
-
-        if (!project) return;
-
-        const [newInvoice] = await tx.insert(invoices).values({
-          clientId: project.clientId,
-          projectId,
-          year,
-          month,
-          status: 'draft',
-          clientName: project.clientName,
-          clientCnpj: project.clientCnpj,
-          createdBy: triggeredBy,
-        }).returning();
-
-        targetInvoiceId = newInvoice.id;
-      }
+    // Check if a draft already exists
+    const draftInvoice = existingInvoices.find(i => i.status === 'draft');
+    if (draftInvoice) {
+      await addOrUpdateConsultantLine(tx, draftInvoice.id, consultantId, projectId, year, month);
+      await recalculateInvoiceTotals(tx, draftInvoice.id);
+      return;
     }
+
+    // No draft exists → create new one
+    const [project] = await tx.select({
+      clientId: projects.clientId,
+      clientName: clients.companyName,
+      clientCnpj: clients.cnpj,
+    })
+      .from(projects)
+      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (!project) return;
+
+    const [newInvoice] = await tx.insert(invoices).values({
+      clientId: project.clientId,
+      projectId,
+      year,
+      month,
+      ...getNextMonth(year, month),
+      status: 'draft',
+      clientName: project.clientName,
+      clientCnpj: project.clientCnpj,
+      createdBy: triggeredBy,
+    }).returning();
+
+    const targetInvoiceId = newInvoice.id;
 
     await addOrUpdateConsultantLine(tx, targetInvoiceId, consultantId, projectId, year, month);
     await recalculateInvoiceTotals(tx, targetInvoiceId);
@@ -437,11 +418,13 @@ export async function generateFromInstallments(
     }
 
     // Create invoice
+    const billing = getNextMonth(year, month);
     const [invoice] = await tx.insert(invoices).values({
       clientId: project.clientId,
       projectId,
       year,
       month,
+      ...billing,
       status: 'draft',
       invoiceType: 'fixed_price',
       clientName: project.clientName,
@@ -776,8 +759,8 @@ export async function list(params: PaginationParams & { clientId?: string; proje
   const conditions: ReturnType<typeof eq>[] = [];
   if (clientId) conditions.push(eq(invoices.clientId, clientId));
   if (projectId) conditions.push(eq(invoices.projectId, projectId));
-  if (year) conditions.push(eq(invoices.year, year));
-  if (month) conditions.push(eq(invoices.month, month));
+  if (year) conditions.push(eq(invoices.billingYear, year));
+  if (month) conditions.push(eq(invoices.billingMonth, month));
   if (status) conditions.push(eq(invoices.status, status as 'draft' | 'issued' | 'paid' | 'cancelled'));
   if (invoiceType) conditions.push(eq(invoices.invoiceType, invoiceType as 'hourly' | 'fixed_price'));
 
@@ -794,6 +777,8 @@ export async function list(params: PaginationParams & { clientId?: string; proje
       projectName: projects.name,
       year: invoices.year,
       month: invoices.month,
+      billingYear: invoices.billingYear,
+      billingMonth: invoices.billingMonth,
       status: invoices.status,
       invoiceType: invoices.invoiceType,
       totalHours: invoices.totalHours,
@@ -836,6 +821,8 @@ export async function listByClient(clientId: string, params: PaginationParams) {
       projectName: projects.name,
       year: invoices.year,
       month: invoices.month,
+      billingYear: invoices.billingYear,
+      billingMonth: invoices.billingMonth,
       status: invoices.status,
       invoiceType: invoices.invoiceType,
       totalHours: invoices.totalHours,
@@ -869,6 +856,8 @@ export async function getById(invoiceId: string, requestUserId: string, requestU
     projectName: projects.name,
     year: invoices.year,
     month: invoices.month,
+    billingYear: invoices.billingYear,
+    billingMonth: invoices.billingMonth,
     status: invoices.status,
     totalHours: invoices.totalHours,
     totalAmount: invoices.totalAmount,
