@@ -9,6 +9,11 @@ import {
   users,
   projects,
 } from '../db/schema';
+function getNextMonth(year: number, month: number): { billingYear: number; billingMonth: number } {
+  return month === 12
+    ? { billingYear: year + 1, billingMonth: 1 }
+    : { billingYear: year, billingMonth: month + 1 };
+}
 import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -116,10 +121,12 @@ export async function generateDraft(userId: string, year: number, month: number,
 
     const { lines, totalHours, totalAmount } = result;
 
+    const billing = getNextMonth(year, month);
     const [payment] = await tx.insert(consultantPayments).values({
       userId,
       year,
       month,
+      ...billing,
       status: 'draft',
       totalHours,
       totalAmount,
@@ -163,8 +170,9 @@ export async function regenerateDraft(userId: string, year: number, month: numbe
       }).where(eq(consultantPayments.id, existing.id)).returning();
       return updated;
     } else {
+      const billing = getNextMonth(year, month);
       const [payment] = await tx.insert(consultantPayments).values({
-        userId, year, month, status: 'draft',
+        userId, year, month, ...billing, status: 'draft',
         totalHours, totalAmount, createdBy,
       }).returning();
       await tx.insert(consultantPaymentLines)
@@ -379,8 +387,8 @@ export async function list(params: PaginationParams & { userId?: string; year?: 
 
   const conditions: ReturnType<typeof eq>[] = [];
   if (userId) conditions.push(eq(consultantPayments.userId, userId));
-  if (year) conditions.push(eq(consultantPayments.year, year));
-  if (month) conditions.push(eq(consultantPayments.month, month));
+  if (year) conditions.push(eq(consultantPayments.billingYear, year));
+  if (month) conditions.push(eq(consultantPayments.billingMonth, month));
   if (status) conditions.push(eq(consultantPayments.status, status as 'draft' | 'confirmed' | 'paid' | 'cancelled'));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -392,6 +400,8 @@ export async function list(params: PaginationParams & { userId?: string; year?: 
       consultantName: users.name,
       year: consultantPayments.year,
       month: consultantPayments.month,
+      billingYear: consultantPayments.billingYear,
+      billingMonth: consultantPayments.billingMonth,
       status: consultantPayments.status,
       totalHours: consultantPayments.totalHours,
       totalAmount: consultantPayments.totalAmount,
@@ -453,6 +463,8 @@ export async function getById(paymentId: string, requestUserId: string, requestU
     consultantName: users.name,
     year: consultantPayments.year,
     month: consultantPayments.month,
+    billingYear: consultantPayments.billingYear,
+    billingMonth: consultantPayments.billingMonth,
     status: consultantPayments.status,
     totalHours: consultantPayments.totalHours,
     totalAmount: consultantPayments.totalAmount,

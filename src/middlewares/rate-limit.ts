@@ -34,10 +34,10 @@ export const searchRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
-// Admin/geral autenticado: 120 req/min por usuário
+// Admin/geral autenticado: 300 req/min por usuário
 export const authenticatedRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 300,
   keyGenerator: authKeyGenerator,
   message: { error: RATE_LIMIT.TOO_MANY_REQUESTS.message, code: RATE_LIMIT.TOO_MANY_REQUESTS.code },
   standardHeaders: true,

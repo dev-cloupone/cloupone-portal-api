@@ -10,6 +10,8 @@ export const consultantPayments = pgTable('consultant_payments', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
   year: integer('year').notNull(),
   month: integer('month').notNull(),
+  billingYear: integer('billing_year').notNull(),
+  billingMonth: integer('billing_month').notNull(),
   status: consultantPaymentStatusEnum('status').notNull().default('draft'),
   totalHours: decimal('total_hours', { precision: 8, scale: 2 }).notNull().default('0'),
   totalAmount: decimal('total_amount', { precision: 12, scale: 2 }).notNull().default('0'),
@@ -27,6 +29,7 @@ export const consultantPayments = pgTable('consultant_payments', {
 }, (table) => [
   index('consultant_payments_user_idx').on(table.userId),
   index('consultant_payments_status_idx').on(table.status),
+  index('consultant_payments_billing_period_idx').on(table.billingYear, table.billingMonth),
 ]);
 
 export const consultantPaymentLines = pgTable('consultant_payment_lines', {

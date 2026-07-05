@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { AppError } from '../../utils/app-error'
 
 vi.mock('drizzle-orm', () => ({
@@ -15,7 +15,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../../db/schema', () => ({
   invoices: {
     id: 'id', invoiceNumber: 'invoiceNumber', clientId: 'clientId', projectId: 'projectId',
-    year: 'year', month: 'month', status: 'status',
+    year: 'year', month: 'month', billingYear: 'billingYear', billingMonth: 'billingMonth', status: 'status',
     totalHours: 'totalHours', totalAmount: 'totalAmount',
     clientName: 'clientName', clientCnpj: 'clientCnpj',
     issuedAt: 'issuedAt', issuedBy: 'issuedBy',
@@ -94,6 +94,24 @@ import { db } from '../../db'
 beforeEach(() => vi.clearAllMocks())
 
 // ─── generateDraft ──────────────────────────────────────────────────────────
+
+describe('getNextMonth', () => {
+  // getNextMonth is a pure function — import actual to bypass mocks
+  let getNextMonth: (year: number, month: number) => { billingYear: number; billingMonth: number };
+
+  beforeAll(async () => {
+    const actual = await vi.importActual<typeof import('../invoice.service')>('../invoice.service');
+    getNextMonth = actual.getNextMonth;
+  });
+
+  it('returns next month in same year', () => {
+    expect(getNextMonth(2024, 6)).toEqual({ billingYear: 2024, billingMonth: 7 });
+  });
+
+  it('rolls over December to January of next year', () => {
+    expect(getNextMonth(2024, 12)).toEqual({ billingYear: 2025, billingMonth: 1 });
+  });
+});
 
 describe('generateDraft', () => {
   beforeEach(() => {
@@ -933,8 +951,9 @@ describe('generateFromInstallments', () => {
       if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
+    const invoiceChain = createChain([invoice])
     vi.mocked(db.insert)
-      .mockReturnValueOnce(createChain([invoice]) as never)   // invoice
+      .mockReturnValueOnce(invoiceChain as never)             // invoice
       .mockReturnValueOnce(createChain([line]) as never)      // line 1
       .mockReturnValueOnce(createChain([line]) as never)      // line 2
     vi.mocked(db.update).mockReturnValue(createChain([updatedInvoice]) as never)
@@ -944,6 +963,11 @@ describe('generateFromInstallments', () => {
     expect(result.lines).toHaveLength(2)
     expect(db.insert).toHaveBeenCalledTimes(3)
     expect(db.update).toHaveBeenCalled()
+    // fixed_price: billing month must equal reference month (not next month)
+    expect(invoiceChain.values).toHaveBeenCalledWith(expect.objectContaining({
+      billingYear: 2024,
+      billingMonth: 6,
+    }))
   })
 
   it('rejeita projeto que nao e fixed_price', async () => {
