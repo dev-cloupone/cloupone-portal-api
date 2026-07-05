@@ -417,14 +417,14 @@ export async function generateFromInstallments(
       throw appError(MSG.INSTALLMENTS_NOT_PENDING, 400);
     }
 
-    // Create invoice
-    const billing = getNextMonth(year, month);
+    // Create invoice (fixed_price: billing = same month, not next)
     const [invoice] = await tx.insert(invoices).values({
       clientId: project.clientId,
       projectId,
       year,
       month,
-      ...billing,
+      billingYear: year,
+      billingMonth: month,
       status: 'draft',
       invoiceType: 'fixed_price',
       clientName: project.clientName,

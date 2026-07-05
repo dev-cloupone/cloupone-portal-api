@@ -951,8 +951,9 @@ describe('generateFromInstallments', () => {
       if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
+    const invoiceChain = createChain([invoice])
     vi.mocked(db.insert)
-      .mockReturnValueOnce(createChain([invoice]) as never)   // invoice
+      .mockReturnValueOnce(invoiceChain as never)             // invoice
       .mockReturnValueOnce(createChain([line]) as never)      // line 1
       .mockReturnValueOnce(createChain([line]) as never)      // line 2
     vi.mocked(db.update).mockReturnValue(createChain([updatedInvoice]) as never)
@@ -962,6 +963,11 @@ describe('generateFromInstallments', () => {
     expect(result.lines).toHaveLength(2)
     expect(db.insert).toHaveBeenCalledTimes(3)
     expect(db.update).toHaveBeenCalled()
+    // fixed_price: billing month must equal reference month (not next month)
+    expect(invoiceChain.values).toHaveBeenCalledWith(expect.objectContaining({
+      billingYear: 2024,
+      billingMonth: 6,
+    }))
   })
 
   it('rejeita projeto que nao e fixed_price', async () => {

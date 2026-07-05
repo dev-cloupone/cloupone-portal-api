@@ -267,6 +267,14 @@
       "when": 1781078400000,
       "tag": "0037_billing_month_separation",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1781164800000,
+      "tag": "0038_fix_fixed_price_billing_month",
+      "breakpoints": true,
+      "dialect": "postgresql"
     }
   ]
 }
