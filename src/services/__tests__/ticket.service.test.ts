@@ -11,6 +11,8 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn((col: unknown) => ({ type: 'asc', col })),
   sql: vi.fn(),
   inArray: vi.fn((_col: unknown, vals: unknown[]) => ({ type: 'inArray', vals })),
+  ne: vi.fn((_col: unknown, val: unknown) => ({ type: 'ne', val })),
+  gte: vi.fn((_col: unknown, val: unknown) => ({ type: 'gte', val })),
 }))
 
 vi.mock('../../db/schema', () => ({
@@ -526,6 +528,38 @@ describe('listTickets', () => {
     })
 
     expect(result.data).toEqual([])
+  })
+
+  it('applies finishedAfter filter when provided', async () => {
+    const dataChain = createChain([])
+    const countChain = createChain([{ total: 0 }])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(countChain as never)
+
+    const result = await listTickets({
+      userId: 'u-admin', userRole: 'super_admin', page: 1, limit: 20,
+      finishedAfter: '2026-07-18T00:00:00.000Z',
+    })
+
+    expect(result.data).toEqual([])
+  })
+
+  it('does not break when finishedAfter is not provided', async () => {
+    const dataChain = createChain([])
+    const countChain = createChain([{ total: 0 }])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(countChain as never)
+
+    const result = await listTickets({
+      userId: 'u-admin', userRole: 'super_admin', page: 1, limit: 20,
+    })
+
+    expect(result.data).toEqual([])
+    expect(result.meta.total).toBe(0)
   })
 })
 

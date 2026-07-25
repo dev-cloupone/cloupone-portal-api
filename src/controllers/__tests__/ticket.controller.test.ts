@@ -141,6 +141,27 @@ describe('ticketController', () => {
       expect(res.json).toHaveBeenCalledWith(result)
       expect(next).not.toHaveBeenCalled()
     })
+
+    it('passes finishedAfter to service when provided', async () => {
+      const result = { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0 } }
+      vi.mocked(getUserClientId).mockResolvedValue(null)
+      vi.mocked(ticketService.listTickets).mockResolvedValue(result as never)
+
+      const { req, res, next } = createMocks({
+        query: { finishedAfter: '2026-07-18T00:00:00.000Z' },
+        userId: 'user-1',
+        userRole: 'super_admin',
+      })
+
+      await ticketController.list(req, res, next)
+
+      expect(ticketService.listTickets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          finishedAfter: '2026-07-18T00:00:00.000Z',
+        }),
+      )
+      expect(res.json).toHaveBeenCalledWith(result)
+    })
   })
 
   describe('getById', () => {
