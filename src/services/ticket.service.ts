@@ -1,4 +1,4 @@
-import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray } from 'drizzle-orm';
+import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray, ne, gte } from 'drizzle-orm';
 import { db } from '../db';
 import { tickets, ticketComments, ticketHistory, ticketAttachments, users, projects, clients, projectAllocations, files, timeEntries } from '../db/schema';
 import { deleteFile } from './file.service';
@@ -257,6 +257,7 @@ export async function listTickets(params: {
   limit: number;
   sort?: string;
   order?: 'asc' | 'desc';
+  finishedAfter?: string;
 }) {
   const { page, limit, userId, userRole, userClientId } = params;
   const offset = (page - 1) * limit;
@@ -293,6 +294,9 @@ export async function listTickets(params: {
   if (params.createdBy) conditions.push(eq(tickets.createdBy, params.createdBy));
   if (params.search) {
     conditions.push(or(ilike(tickets.title, `%${params.search}%`), ilike(tickets.description, `%${params.search}%`)));
+  }
+  if (params.finishedAfter) {
+    conditions.push(or(ne(tickets.status, 'finished'), gte(tickets.resolvedAt, new Date(params.finishedAfter))));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

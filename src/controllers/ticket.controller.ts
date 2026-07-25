@@ -49,6 +49,7 @@ const listTicketsSchema = z.object({
   search: z.string().optional(),
   sort: z.enum(['created_at', 'updated_at', 'priority', 'status']).optional(),
   order: z.enum(['asc', 'desc']).optional(),
+  finishedAfter: z.string().optional(),
 }).merge(paginationSchema);
 
 const createCommentSchema = z.object({
