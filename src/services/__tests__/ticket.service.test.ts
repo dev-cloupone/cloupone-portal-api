@@ -102,20 +102,23 @@ describe('createTicket', () => {
 
   it('creates ticket with auto-generated code', async () => {
     // 1. assertUserHasProjectAccess (mocked)
-    // 2. generateTicketCode: select project
+    // 2. project status check
+    const statusChain = createChain([{ status: 'active' }])
+    // 3. generateTicketCode: select project
     const projectChain = createChain([{ name: 'Projeto Alpha', ticketPrefix: 'PRJ', ticketSequence: 1 }])
-    // 3. generateTicketCode: update ticketSequence → returns new sequence
+    // 4. generateTicketCode: update ticketSequence → returns new sequence
     const updateSeqChain = createChain([{ ticketSequence: 2 }])
-    // 4. insert ticket
+    // 5. insert ticket
     const insertedTicket = { ...mockTicket, id: 't-new', code: 'PRJ-002' }
     const insertChain = createChain([insertedTicket])
-    // 5. recordHistory: insert into ticketHistory
+    // 6. recordHistory: insert into ticketHistory
     const historyChain = createChain([])
-    // 6. getTicketByIdInternal: select ticket with joins
+    // 7. getTicketByIdInternal: select ticket with joins
     const internalChain = createChain([insertedTicket])
 
     vi.mocked(db.select)
-      .mockReturnValueOnce(projectChain as never)     // generateTicketCode: project lookup
+      .mockReturnValueOnce(statusChain as never)       // project status check
+      .mockReturnValueOnce(projectChain as never)      // generateTicketCode: project lookup
       .mockReturnValueOnce(internalChain as never)     // getTicketByIdInternal: ticket select
 
     vi.mocked(db.update).mockReturnValue(updateSeqChain as never)
@@ -134,6 +137,7 @@ describe('createTicket', () => {
   })
 
   it('records creation history', async () => {
+    const statusChain = createChain([{ status: 'active' }])
     const projectChain = createChain([{ name: 'Projeto Alpha', ticketPrefix: 'PRJ', ticketSequence: 1 }])
     const updateSeqChain = createChain([{ ticketSequence: 2 }])
     const insertedTicket = { ...mockTicket, id: 't-new', code: 'PRJ-002' }
@@ -142,6 +146,7 @@ describe('createTicket', () => {
     const internalChain = createChain([insertedTicket])
 
     vi.mocked(db.select)
+      .mockReturnValueOnce(statusChain as never)
       .mockReturnValueOnce(projectChain as never)
       .mockReturnValueOnce(internalChain as never)
 
@@ -1324,6 +1329,7 @@ describe('createTicket – additional branches', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('forces isVisibleToClient=true for client role', async () => {
+    const statusChain = createChain([{ status: 'active' }])
     const projectChain = createChain([{ name: 'Projeto Alpha', ticketPrefix: 'PRJ', ticketSequence: 1 }])
     const updateSeqChain = createChain([{ ticketSequence: 2 }])
     const insertedTicket = { ...mockTicket, id: 't-new', code: 'PRJ-002', isVisibleToClient: true }
@@ -1332,6 +1338,7 @@ describe('createTicket – additional branches', () => {
     const internalChain = createChain([insertedTicket])
 
     vi.mocked(db.select)
+      .mockReturnValueOnce(statusChain as never)
       .mockReturnValueOnce(projectChain as never)
       .mockReturnValueOnce(internalChain as never)
 
@@ -1350,6 +1357,7 @@ describe('createTicket – additional branches', () => {
   })
 
   it('generates prefix from project name when ticketPrefix is null', async () => {
+    const statusChain = createChain([{ status: 'active' }])
     const projectChain = createChain([{ name: 'Projeto Alpha', ticketPrefix: null, ticketSequence: 1 }])
     const updatePrefixChain = createChain([])
     const updateSeqChain = createChain([{ ticketSequence: 2 }])
@@ -1359,6 +1367,7 @@ describe('createTicket – additional branches', () => {
     const internalChain = createChain([insertedTicket])
 
     vi.mocked(db.select)
+      .mockReturnValueOnce(statusChain as never)
       .mockReturnValueOnce(projectChain as never)
       .mockReturnValueOnce(internalChain as never)
 
@@ -1381,6 +1390,7 @@ describe('createTicket – additional branches', () => {
   })
 
   it('uses TK prefix when project name is too short', async () => {
+    const statusChain = createChain([{ status: 'active' }])
     const projectChain = createChain([{ name: 'X', ticketPrefix: null, ticketSequence: 1 }])
     const updatePrefixChain = createChain([])
     const updateSeqChain = createChain([{ ticketSequence: 2 }])
@@ -1390,6 +1400,7 @@ describe('createTicket – additional branches', () => {
     const internalChain = createChain([insertedTicket])
 
     vi.mocked(db.select)
+      .mockReturnValueOnce(statusChain as never)
       .mockReturnValueOnce(projectChain as never)
       .mockReturnValueOnce(internalChain as never)
 

@@ -21,6 +21,7 @@ const MSG = {
   OVERLAP: { message: 'Sobreposição detectada com outro registro.', code: 'TIME_ENTRY_OVERLAP' },
   TICKET_NOT_FOUND: { message: 'Ticket não encontrado.', code: 'TIME_ENTRY_TICKET_NOT_FOUND' },
   TICKET_NOT_IN_PROJECT: { message: 'Ticket não pertence ao projeto selecionado.', code: 'TIME_ENTRY_TICKET_NOT_IN_PROJECT' },
+  PROJECT_FINISHED: { message: 'Não é possível registrar horas em um projeto finalizado.', code: 'PROJECT_FINISHED' },
 } as const;
 
 // --- Time utility functions ---
@@ -269,6 +270,10 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     .limit(1);
 
   if (!allocation) throw appError(MSG.NOT_ALLOCATED, 400);
+
+  // 4.5 Validate project is not finished
+  const [projectStatus] = await db.select({ status: projects.status }).from(projects).where(eq(projects.id, data.projectId)).limit(1);
+  if (projectStatus?.status === 'finished') throw appError(MSG.PROJECT_FINISHED, 400);
 
   // 5. Validate ticket belongs to project (if provided)
   if (data.ticketId) {

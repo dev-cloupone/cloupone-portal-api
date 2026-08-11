@@ -103,11 +103,12 @@ describe('upsertTimeEntry', () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      // 1: allocation, 2: subphase, 3: subphaseConsultant link, 4: consultantProfile, 5: overlap
+      // 1: allocation, 2: project status, 3: subphase, 4: subphaseConsultant link, 5: consultantProfile, 6: overlap
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never
-      if (selectCall === 4) return createChain([{ allowOverlappingEntries: false }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: false }]) as never
       return createChain([]) as never // no overlap
     })
     vi.mocked(db.insert).mockReturnValue(createChain([{ id: 'new-entry', hours: '1.00' }]) as never)
@@ -145,9 +146,10 @@ describe('upsertTimeEntry', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never
-      if (selectCall === 4) return createChain([{ allowOverlappingEntries: true }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: true }]) as never
       return createChain([]) as never
     })
     const insertChain = createChain([{ id: 'new-entry' }])
@@ -276,9 +278,10 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
-      if (selectCall === 4) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: false }]) as never // profile
       return createChain([{ id: 'overlap-entry', startTime: '08:00', endTime: '09:30' }]) as never // overlap found
     })
 
@@ -293,9 +296,10 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never
-      if (selectCall === 4) return createChain([{ allowOverlappingEntries: true }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: true }]) as never
       return createChain([]) as never
     })
     vi.mocked(db.insert).mockReturnValue(createChain([{ id: 'new-entry' }]) as never)
@@ -304,8 +308,8 @@ describe('upsertTimeEntry - additional branches', () => {
       userId: 'u1', projectId: 'p1', date: '2024-06-10',
       startTime: '09:00', endTime: '10:00', subphaseId: 'sp1',
     })
-    // Only 4 select calls (no overlap query) instead of 5
-    expect(selectCall).toBe(4)
+    // Only 5 select calls (no overlap query) instead of 6
+    expect(selectCall).toBe(5)
     expect(result.id).toBe('new-entry')
   })
 
@@ -356,7 +360,8 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
       return createChain([]) as never // subphase NOT in project
     })
 
@@ -372,7 +377,8 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
       return createChain([]) as never // subphase NOT in project
     })
 
@@ -388,7 +394,8 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
       return createChain([]) as never // no link
     })
 
@@ -403,7 +410,8 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
-      if (selectCall === 2) return createChain([{ projectId: 'other-project' }]) as never // ticket from another project
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ projectId: 'other-project' }]) as never // ticket from another project
       return createChain([]) as never
     })
 
@@ -434,10 +442,11 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
-      if (selectCall === 4) return createChain([{ id: 'e1', userId: 'u1' }]) as never // existing entry
-      if (selectCall === 5) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
+      if (selectCall === 5) return createChain([{ id: 'e1', userId: 'u1' }]) as never // existing entry
+      if (selectCall === 6) return createChain([{ allowOverlappingEntries: false }]) as never // profile
       return createChain([]) as never // no overlap
     })
     vi.mocked(db.update).mockReturnValue(createChain([{ id: 'e1', hours: '2.00' }]) as never)
@@ -456,8 +465,9 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // subphaseConsultant
       return createChain([]) as never // entry not found
     })
 
@@ -473,8 +483,9 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
-      if (selectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
-      if (selectCall === 3) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
       return createChain([{ id: 'e1', userId: 'other-user' }]) as never // belongs to other user
     })
 
