@@ -31,6 +31,7 @@ const MSG = {
   CANNOT_EDIT_REIMBURSEMENT: { message: 'Consultor não pode alterar a marcação de reembolso após a criação.', code: 'EXPENSE_CANNOT_EDIT_REIMBURSEMENT' },
   CONSULTANT_VIEW_FORBIDDEN: { message: 'Consultores não podem visualizar despesas de outros.', code: 'EXPENSE_CONSULTANT_VIEW_FORBIDDEN' },
   NO_PROJECT_ACCESS: { message: 'Sem acesso a este projeto.', code: 'EXPENSE_NO_PROJECT_ACCESS' },
+  PROJECT_FINISHED: { message: 'Não é possível registrar despesas em um projeto finalizado.', code: 'PROJECT_FINISHED' },
   ONLY_GESTORS_CAN_REVERT: { message: 'Apenas gestores podem reverter despesas.', code: 'EXPENSE_ONLY_GESTORS_CAN_REVERT' },
   ONLY_APPROVED_CAN_REVERT: { message: 'Apenas despesas aprovadas podem ser revertidas.', code: 'EXPENSE_ONLY_APPROVED_CAN_REVERT' },
   REIMBURSED_CANNOT_REVERT: { message: 'Despesas reembolsadas não podem ser revertidas. Desfaça o reembolso antes.', code: 'EXPENSE_REIMBURSED_CANNOT_REVERT' },
@@ -320,13 +321,14 @@ interface UpsertExpenseInput {
 }
 
 export async function upsertExpense(data: UpsertExpenseInput, requestUserId: string, requestUserRole: string) {
-  // Validate project exists and is active
+  // Validate project exists, is active, and is not finished
   const [project] = await db
-    .select({ id: projects.id, isActive: projects.isActive })
+    .select({ id: projects.id, isActive: projects.isActive, status: projects.status })
     .from(projects)
     .where(eq(projects.id, data.projectId))
     .limit(1);
   if (!project || !project.isActive) throw appError(MSG.PROJECT_NOT_FOUND, 400);
+  if (project.status === 'finished') throw appError(MSG.PROJECT_FINISHED, 400);
 
   // Validar acesso do gestor ao projeto
   await assertUserHasProjectAccess(requestUserId, requestUserRole, data.projectId);

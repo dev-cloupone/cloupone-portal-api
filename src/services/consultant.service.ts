@@ -1,4 +1,4 @@
-import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
+import { eq, and, count as drizzleCount, desc, inArray, ne } from 'drizzle-orm';
 import { db } from '../db';
 import { consultantProfiles, users, projectAllocations, projects, clients } from '../db/schema';
 import { appError } from '../utils/app-error';
@@ -164,5 +164,5 @@ export async function listConsultantProjects(userId: string) {
     .from(projectAllocations)
     .innerJoin(projects, eq(projectAllocations.projectId, projects.id))
     .leftJoin(clients, eq(projects.clientId, clients.id))
-    .where(and(eq(projectAllocations.userId, userId), eq(projects.isActive, true)));
+    .where(and(eq(projectAllocations.userId, userId), eq(projects.isActive, true), ne(projects.status, 'finished')));
 }

@@ -12,6 +12,7 @@ const MSG = {
   NOT_FOUND: { message: 'Ticket não encontrado.', code: 'TICKET_NOT_FOUND' },
   PROJECT_NOT_FOUND: { message: 'Projeto não encontrado.', code: 'TICKET_PROJECT_NOT_FOUND' },
   NO_ACCESS: { message: 'Você não tem acesso a este projeto.', code: 'TICKET_NO_ACCESS' },
+  PROJECT_FINISHED: { message: 'Não é possível abrir tickets em um projeto finalizado.', code: 'PROJECT_FINISHED' },
   INVALID_TRANSITION: { message: 'Transição de status inválida.', code: 'TICKET_INVALID_TRANSITION' },
   NO_PERMISSION: { message: 'Você não tem permissão para realizar esta ação.', code: 'TICKET_NO_PERMISSION' },
   COMMENT_EMPTY: { message: 'O conteúdo do comentário é obrigatório.', code: 'TICKET_COMMENT_EMPTY' },
@@ -144,6 +145,10 @@ export async function createTicket(data: {
   ccEmails?: string[];
 }) {
   await assertUserHasProjectAccess(data.createdBy, data.createdByRole, data.projectId, data.createdByClientId);
+
+  const [projectStatus] = await db.select({ status: projects.status }).from(projects).where(eq(projects.id, data.projectId)).limit(1);
+  if (!projectStatus) throw appError(MSG.PROJECT_NOT_FOUND, 404);
+  if (projectStatus.status === 'finished') throw appError(MSG.PROJECT_FINISHED, 400);
 
   const isVisibleToClient = data.createdByRole === 'client' ? true : (data.isVisibleToClient ?? true);
   const code = await generateTicketCode(data.projectId);
