@@ -105,4 +105,22 @@ const getLoginHistory: RequestHandler = async (req, res, next) => {
   }
 };
 
-export const usersController = { list, create, update, deactivate, dashboard, getLoginHistory };
+const resendWelcome: RequestHandler = async (req, res, next) => {
+  try {
+    await userService.resendWelcomeEmail(idSchema.parse(req.params.id));
+    res.json({ message: 'E-mail de boas-vindas enviado' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const sendPasswordReset: RequestHandler = async (req, res, next) => {
+  try {
+    await userService.sendPasswordResetForUser(idSchema.parse(req.params.id));
+    res.json({ message: 'E-mail de redefinição de senha enviado' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const usersController = { list, create, update, deactivate, dashboard, getLoginHistory, resendWelcome, sendPasswordReset };

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { eq, and, count as drizzleCount, desc, type SQL } from 'drizzle-orm';
 import { db } from '../db';
@@ -11,6 +12,7 @@ import { getEmailProvider } from '../providers/email';
 import { buildWelcomeEmail } from '../emails';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { requestPasswordReset } from './password-reset.service';
 
 const SALT_ROUNDS = 12;
 
@@ -202,4 +204,58 @@ export async function deactivateUser(id: string, requestingUserId: string) {
     .returning(safeFields);
 
   return updated;
+}
+
+export async function resendWelcomeEmail(userId: string): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+
+  if (!user || !user.isActive) {
+    throw appError(USER.NOT_FOUND, 404);
+  }
+
+  const newPassword = crypto.randomBytes(9).toString('base64url').slice(0, 12);
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  await db.update(users)
+    .set({ passwordHash, mustChangePassword: true, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+
+  const settings = await getSettingsMap();
+  const appName = settings['app_name'] || 'Cloupone';
+
+  try {
+    const emailData = buildWelcomeEmail({
+      name: user.name,
+      email: user.email,
+      tempPassword: newPassword,
+      appName,
+      loginUrl: `${env.FRONTEND_URL}/login`,
+    });
+
+    const emailProvider = getEmailProvider();
+    await emailProvider.send({
+      to: user.email,
+      subject: emailData.subject,
+      text: emailData.text,
+      html: emailData.html,
+    });
+    logger.info({ userId }, 'Welcome email resent, new password generated');
+  } catch (err) {
+    logger.error({ err, userId }, 'Failed to resend welcome email');
+    throw err;
+  }
+}
+
+export async function sendPasswordResetForUser(userId: string): Promise<void> {
+  const [user] = await db
+    .select({ email: users.email, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user || !user.isActive) {
+    throw appError(USER.NOT_FOUND, 404);
+  }
+
+  await requestPasswordReset(user.email);
 }
