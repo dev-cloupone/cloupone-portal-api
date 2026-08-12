@@ -14,5 +14,7 @@ router.post('/', authorize('super_admin'), usersController.create);
 router.patch('/:id', authorize('super_admin'), usersController.update);
 router.delete('/:id', authorize('super_admin'), usersController.deactivate);
 router.get('/:id/login-history', authorize('super_admin'), usersController.getLoginHistory);
+router.post('/:id/resend-welcome', authorize('super_admin'), usersController.resendWelcome);
+router.post('/:id/send-password-reset', authorize('super_admin'), usersController.sendPasswordReset);
 
 export { router as usersRoutes };
