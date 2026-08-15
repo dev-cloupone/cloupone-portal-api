@@ -279,7 +279,7 @@
     {
       "idx": 39,
       "version": "7",
-      "when": 1723766400000,
+      "when": 1781251200000,
       "tag": "0039_add_notification_tables",
       "breakpoints": true,
       "dialect": "postgresql"
