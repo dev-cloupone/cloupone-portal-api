@@ -13,6 +13,8 @@ export const users = pgTable('users', {
   mustChangePassword: boolean('must_change_password').default(false).notNull(),
   avatarFileId: uuid('avatar_file_id'),
   locale: varchar('locale', { length: 5 }).default('pt-BR').notNull(),
+  urgentNotificationsEnabled: boolean('urgent_notifications_enabled').default(false).notNull(),
+  notificationSoundEnabled: boolean('notification_sound_enabled').default(false).notNull(),
   clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

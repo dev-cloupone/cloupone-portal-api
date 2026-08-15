@@ -7,11 +7,12 @@ import { MIDDLEWARE, AUTH } from '../utils/error-messages';
 
 export const auth: RequestHandler = (req, _res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined)
+    || (req.query.token as string | undefined);
+
+  if (!token) {
     return next(appError(MIDDLEWARE.AUTH_REQUIRED, 401));
   }
-
-  const token = authHeader.slice(7);
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;

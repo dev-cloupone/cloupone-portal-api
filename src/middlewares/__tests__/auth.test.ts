@@ -15,9 +15,10 @@ vi.mock('../../config/env', () => ({
 import jwt from 'jsonwebtoken'
 import { auth } from '../auth'
 
-function createMocks(authHeader?: string) {
+function createMocks(authHeader?: string, query: Record<string, string> = {}) {
   const req = {
     headers: { authorization: authHeader },
+    query,
   } as unknown as Request
   const res = {} as Response
   const next = vi.fn() as unknown as NextFunction

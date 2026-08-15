@@ -18,6 +18,7 @@ router.post('/reset-password', authSensitiveRateLimit, passwordResetController.r
 router.get('/me', auth, authenticatedRateLimit, authController.getMe);
 router.patch('/me', auth, authenticatedRateLimit, authController.updateMe);
 router.patch('/me/password', auth, authSensitiveRateLimit, authController.changePassword);
+router.patch('/me/notification-preferences', auth, authenticatedRateLimit, authController.updateNotificationPreferences);
 
 // Login history
 router.get('/me/login-history', auth, authenticatedRateLimit, authController.getMyLoginHistory);

@@ -24,3 +24,6 @@ export { invoiceStatusEnum, invoiceLineTypeEnum, invoiceTypeEnum, invoices, invo
 export { installmentStatusEnum, projectInstallments } from './project-installments';
 export { expenseInvoices, expenseInvoiceItems } from './expense-invoices';
 export { importLogs } from './import-logs';
+export { projectNotificationSettings } from './project-notification-settings';
+export { projectNotificationEmails } from './project-notification-emails';
+export { notifications } from './notifications';

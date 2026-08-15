@@ -8,6 +8,7 @@ vi.mock('../../services/auth.service', () => ({
   getMe: vi.fn(),
   updateMe: vi.fn(),
   changePassword: vi.fn(),
+  updateNotificationPreferences: vi.fn(),
 }))
 
 vi.mock('../../services/login-history.service', () => ({
@@ -428,6 +429,34 @@ describe('authController', () => {
 
       expect(next).toHaveBeenCalled()
       expect(authService.login).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('updateNotificationPreferences', () => {
+    it('validates body and delegates to service', async () => {
+      vi.mocked(authService.updateNotificationPreferences).mockResolvedValue({ id: 'u1' } as never)
+
+      const { req, res, next } = createMocks({
+        body: { urgentNotificationsEnabled: true },
+        userId: 'u1',
+      })
+
+      await authController.updateNotificationPreferences(req, res, next)
+
+      expect(authService.updateNotificationPreferences).toHaveBeenCalledWith('u1', { urgentNotificationsEnabled: true })
+      expect(res.json).toHaveBeenCalledWith({ success: true })
+    })
+
+    it('rejects invalid body type', async () => {
+      const { req, res, next } = createMocks({
+        body: { urgentNotificationsEnabled: 'not-a-boolean' },
+        userId: 'u1',
+      })
+
+      await authController.updateNotificationPreferences(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(authService.updateNotificationPreferences).not.toHaveBeenCalled()
     })
   })
 })

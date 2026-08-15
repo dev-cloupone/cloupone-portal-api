@@ -155,6 +155,8 @@ export async function getMe(userId: string) {
     mustChangePassword: user.mustChangePassword,
     avatarFileId: user.avatarFileId,
     locale: user.locale,
+    urgentNotificationsEnabled: user.urgentNotificationsEnabled,
+    notificationSoundEnabled: user.notificationSoundEnabled,
     createdAt: user.createdAt,
   };
 }
@@ -178,6 +180,18 @@ export async function updateMe(userId: string, data: { name?: string; email?: st
     locale: updated.locale,
     createdAt: updated.createdAt,
   };
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  data: { urgentNotificationsEnabled?: boolean; notificationSoundEnabled?: boolean },
+) {
+  const [updated] = await db
+    .update(users)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  return updated;
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string) {

@@ -53,7 +53,7 @@ vi.mock('../../db', () => ({
   },
 }))
 
-import { login, refresh, logout, getMe, updateMe, changePassword } from '../auth.service'
+import { login, refresh, logout, getMe, updateMe, changePassword, updateNotificationPreferences } from '../auth.service'
 import { db } from '../../db'
 
 const mockUser = {
@@ -261,5 +261,18 @@ describe('changePassword', () => {
     mockBcrypt.hash.mockResolvedValue('new-hash')
     await changePassword('u1', 'old-pw', 'new-pw')
     expect(mockEmailSend).toHaveBeenCalled()
+  })
+})
+
+describe('updateNotificationPreferences', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('updates notification preference columns', async () => {
+    const chain = createChain([{ id: 'u1' }])
+    vi.mocked(db.update).mockReturnValue(chain as never)
+
+    const result = await updateNotificationPreferences('u1', { urgentNotificationsEnabled: true })
+    expect(result).toEqual({ id: 'u1' })
+    expect(db.update).toHaveBeenCalled()
   })
 })

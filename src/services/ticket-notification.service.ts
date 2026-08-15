@@ -1,6 +1,7 @@
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { tickets, ticketComments, users, projects, clients, projectAllocations } from '../db/schema';
+import { tickets, ticketComments, users, projects, clients, projectAllocations, projectNotificationSettings, projectNotificationEmails } from '../db/schema';
+import * as notificationService from './notification.service';
 import { getEmailProvider } from '../providers/email';
 import { buildTicketCreatedEmail } from '../emails/ticket-created';
 import { buildTicketAssignedEmail } from '../emails/ticket-assigned';
@@ -77,22 +78,81 @@ export async function notifyTicketCreated(ticketId: string) {
     const creator = await getUserData(ticket.createdBy);
     if (!creator) return;
 
-    // Only gestors allocated to the ticket's project receive notifications
-    const managers = await db
-      .select({ id: users.id, name: users.name, email: users.email, locale: users.locale })
-      .from(users)
-      .innerJoin(projectAllocations, and(
-        eq(projectAllocations.userId, users.id),
-        eq(projectAllocations.projectId, ticket.projectId),
-      ))
-      .where(and(eq(users.role, 'gestor'), eq(users.isActive, true)));
+    // 1. Consult project notification settings
+    const settings = await db
+      .select({
+        userId: projectNotificationSettings.userId,
+        channelEmail: projectNotificationSettings.channelEmail,
+        channelInApp: projectNotificationSettings.channelInApp,
+        userEmail: users.email,
+        userName: users.name,
+        userLocale: users.locale,
+      })
+      .from(projectNotificationSettings)
+      .innerJoin(users, eq(projectNotificationSettings.userId, users.id))
+      .where(and(
+        eq(projectNotificationSettings.projectId, ticket.projectId),
+        eq(projectNotificationSettings.eventType, 'ticket_created'),
+      ));
 
     const emailProvider = getEmailProvider();
     const ticketUrl = getTicketUrl(ticket.id);
 
-    for (const manager of managers) {
-      if (manager.id === ticket.createdBy) continue;
+    for (const setting of settings) {
+      // Don't notify the ticket creator
+      if (setting.userId === ticket.createdBy) continue;
 
+      // 2. Email
+      if (setting.channelEmail) {
+        const emailData = buildTicketCreatedEmail({
+          projectName: ticket.projectName,
+          ticketCode: ticket.code,
+          ticketTitle: ticket.title,
+          ticketType: ticket.type,
+          createdByName: creator.name,
+          ticketUrl,
+          locale: toLocale(setting.userLocale),
+        });
+
+        await emailProvider.send({
+          to: setting.userEmail,
+          subject: emailData.subject,
+          text: emailData.text,
+          html: emailData.html,
+        });
+      }
+
+      // 3. In-App + SSE
+      if (setting.channelInApp) {
+        await notificationService.create({
+          userId: setting.userId,
+          type: 'ticket_created',
+          title: 'Novo ticket criado',
+          body: `${ticket.code} — "${ticket.title}" foi criado por ${creator.name} no projeto ${ticket.projectName}.`,
+          link: `/tickets/${ticket.id}`,
+          metadata: {
+            ticketId: ticket.id,
+            projectId: ticket.projectId,
+            ticketCode: ticket.code,
+            projectName: ticket.projectName,
+          },
+        });
+      }
+    }
+
+    // 4. External project emails
+    const externalEmails = await db
+      .select({ email: projectNotificationEmails.email })
+      .from(projectNotificationEmails)
+      .where(and(
+        eq(projectNotificationEmails.projectId, ticket.projectId),
+        or(
+          eq(projectNotificationEmails.eventType, 'ticket_created'),
+          eq(projectNotificationEmails.eventType, 'all'),
+        ),
+      ));
+
+    for (const { email } of externalEmails) {
       const emailData = buildTicketCreatedEmail({
         projectName: ticket.projectName,
         ticketCode: ticket.code,
@@ -100,18 +160,18 @@ export async function notifyTicketCreated(ticketId: string) {
         ticketType: ticket.type,
         createdByName: creator.name,
         ticketUrl,
-        locale: toLocale(manager.locale),
+        locale: 'pt-BR',
       });
 
       await emailProvider.send({
-        to: manager.email,
+        to: email,
         subject: emailData.subject,
         text: emailData.text,
         html: emailData.html,
       });
     }
 
-    // Send to CC recipients (using ticket creator's locale)
+    // 5. Maintain CC email behavior (independent of settings)
     const ccEmailData = buildTicketCreatedEmail({
       projectName: ticket.projectName,
       ticketCode: ticket.code,

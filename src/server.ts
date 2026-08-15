@@ -36,6 +36,8 @@ import { expensePaymentRoutes } from './routes/expense-payment.routes';
 import { invoiceRoutes } from './routes/invoice.routes';
 import { installmentRoutes } from './routes/installment.routes';
 import { expenseInvoiceRoutes } from './routes/expense-invoice.routes';
+import { projectNotificationSettingsRoutes } from './routes/project-notification-settings.routes';
+import { notificationRoutes } from './routes/notification.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
 
@@ -112,6 +114,8 @@ app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 app.use('/api/payments/hours', consultantPaymentRoutes);
 app.use('/api/payments/expenses', expensePaymentRoutes);
 app.use('/api/projects/:projectId/installments', installmentRoutes);
+app.use('/api/projects/:projectId', projectNotificationSettingsRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/invoices/services', invoiceRoutes);
 app.use('/api/invoices/expenses', expenseInvoiceRoutes);
 
