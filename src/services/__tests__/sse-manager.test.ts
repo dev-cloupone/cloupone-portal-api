@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Response } from 'express'
 
+vi.mock('../../utils/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
 import { sseManager } from '../sse-manager'
 
 function createMockResponse() {
-  return { write: vi.fn() } as unknown as Response
+  return { write: vi.fn(), writableEnded: false, destroyed: false } as unknown as Response
 }
 
 describe('SSEManager', () => {
@@ -69,5 +73,47 @@ describe('SSEManager', () => {
 
     expect(res1.write).toHaveBeenCalledWith(': heartbeat\n\n')
     expect(res2.write).toHaveBeenCalledWith(': heartbeat\n\n')
+  })
+
+  it('send drops the connection when write throws', () => {
+    const res = createMockResponse()
+    vi.mocked(res.write).mockImplementation(() => { throw new Error('EPIPE') })
+    sseManager.addConnection('u1', res)
+
+    expect(() => sseManager.send('u1', { type: 'test' })).not.toThrow()
+    expect(sseManager.getConnectionCount()).toBe(0)
+  })
+
+  it('send skips connections already ended', () => {
+    const res = createMockResponse()
+    ;(res as unknown as { writableEnded: boolean }).writableEnded = true
+    sseManager.addConnection('u1', res)
+
+    sseManager.send('u1', { type: 'test' })
+
+    expect(res.write).not.toHaveBeenCalled()
+    expect(sseManager.getConnectionCount()).toBe(0)
+  })
+
+  it('heartbeat does not propagate exceptions', () => {
+    const res = createMockResponse()
+    vi.mocked(res.write).mockImplementation(() => { throw new Error('socket closed') })
+    sseManager.addConnection('u1', res)
+
+    expect(() => sseManager.heartbeat()).not.toThrow()
+    expect(sseManager.getConnectionCount()).toBe(0)
+  })
+
+  it('heartbeat keeps writing to remaining connections after a failure', () => {
+    const failing = createMockResponse()
+    vi.mocked(failing.write).mockImplementation(() => { throw new Error('socket closed') })
+    const healthy = createMockResponse()
+    sseManager.addConnection('u1', failing)
+    sseManager.addConnection('u2', healthy)
+
+    sseManager.heartbeat()
+
+    expect(healthy.write).toHaveBeenCalledWith(': heartbeat\n\n')
+    expect(sseManager.getConnectionCount()).toBe(1)
   })
 })

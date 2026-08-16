@@ -1,4 +1,4 @@
-import { eq, and, or, inArray } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '../db';
 import { tickets, ticketComments, users, projects, clients, projectAllocations, projectNotificationSettings, projectNotificationEmails } from '../db/schema';
 import * as notificationService from './notification.service';
@@ -10,7 +10,7 @@ import { buildTicketCommentEmail } from '../emails/ticket-comment';
 import { buildTicketAttachmentEmail } from '../emails/ticket-attachment';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-import { toLocale } from '../emails/translations';
+import { toLocale, t } from '../emails/translations';
 
 function getTicketUrl(ticketId: string): string {
   return `${env.FRONTEND_URL}/tickets/${ticketId}`;
@@ -90,9 +90,16 @@ export async function notifyTicketCreated(ticketId: string) {
       })
       .from(projectNotificationSettings)
       .innerJoin(users, eq(projectNotificationSettings.userId, users.id))
+      // Defesa em profundidade: um registro orfao (usuario desalocado) nao deve
+      // disparar notificacao mesmo que a limpeza em removeAllocation falhe.
+      .innerJoin(projectAllocations, and(
+        eq(projectAllocations.userId, projectNotificationSettings.userId),
+        eq(projectAllocations.projectId, projectNotificationSettings.projectId),
+      ))
       .where(and(
         eq(projectNotificationSettings.projectId, ticket.projectId),
         eq(projectNotificationSettings.eventType, 'ticket_created'),
+        eq(users.isActive, true),
       ));
 
     const emailProvider = getEmailProvider();
@@ -102,41 +109,59 @@ export async function notifyTicketCreated(ticketId: string) {
       // Don't notify the ticket creator
       if (setting.userId === ticket.createdBy) continue;
 
-      // 2. Email
-      if (setting.channelEmail) {
-        const emailData = buildTicketCreatedEmail({
-          projectName: ticket.projectName,
-          ticketCode: ticket.code,
-          ticketTitle: ticket.title,
-          ticketType: ticket.type,
-          createdByName: creator.name,
-          ticketUrl,
-          locale: toLocale(setting.userLocale),
-        });
-
-        await emailProvider.send({
-          to: setting.userEmail,
-          subject: emailData.subject,
-          text: emailData.text,
-          html: emailData.html,
-        });
+      // 2. In-App + SSE first: local, cheap and independent of an external provider.
+      if (setting.channelInApp) {
+        try {
+          // O texto fica congelado no locale vigente na criacao: trocar de idioma
+          // depois nao retraduz notificacoes antigas.
+          const locale = toLocale(setting.userLocale);
+          await notificationService.create({
+            userId: setting.userId,
+            type: 'ticket_created',
+            title: t(locale, 'notification.ticketCreated.title'),
+            body: t(locale, 'notification.ticketCreated.body', {
+              code: ticket.code,
+              title: ticket.title,
+              createdBy: creator.name,
+              projectName: ticket.projectName,
+            }),
+            link: `/tickets/${ticket.id}`,
+            metadata: {
+              ticketId: ticket.id,
+              projectId: ticket.projectId,
+              ticketCode: ticket.code,
+              projectName: ticket.projectName,
+              createdByName: creator.name,
+              ticketTitle: ticket.title,
+            },
+          });
+        } catch (err) {
+          logger.error({ err, ticketId, userId: setting.userId }, 'Failed to create in-app notification');
+        }
       }
 
-      // 3. In-App + SSE
-      if (setting.channelInApp) {
-        await notificationService.create({
-          userId: setting.userId,
-          type: 'ticket_created',
-          title: 'Novo ticket criado',
-          body: `${ticket.code} — "${ticket.title}" foi criado por ${creator.name} no projeto ${ticket.projectName}.`,
-          link: `/tickets/${ticket.id}`,
-          metadata: {
-            ticketId: ticket.id,
-            projectId: ticket.projectId,
-            ticketCode: ticket.code,
+      // 3. Email
+      if (setting.channelEmail) {
+        try {
+          const emailData = buildTicketCreatedEmail({
             projectName: ticket.projectName,
-          },
-        });
+            ticketCode: ticket.code,
+            ticketTitle: ticket.title,
+            ticketType: ticket.type,
+            createdByName: creator.name,
+            ticketUrl,
+            locale: toLocale(setting.userLocale),
+          });
+
+          await emailProvider.send({
+            to: setting.userEmail,
+            subject: emailData.subject,
+            text: emailData.text,
+            html: emailData.html,
+          });
+        } catch (err) {
+          logger.error({ err, ticketId, to: setting.userEmail }, 'Failed to send ticket created email');
+        }
       }
     }
 
@@ -146,42 +171,47 @@ export async function notifyTicketCreated(ticketId: string) {
       .from(projectNotificationEmails)
       .where(and(
         eq(projectNotificationEmails.projectId, ticket.projectId),
-        or(
-          eq(projectNotificationEmails.eventType, 'ticket_created'),
-          eq(projectNotificationEmails.eventType, 'all'),
-        ),
+        eq(projectNotificationEmails.eventType, 'ticket_created'),
       ));
 
     for (const { email } of externalEmails) {
-      const emailData = buildTicketCreatedEmail({
+      try {
+        const emailData = buildTicketCreatedEmail({
+          projectName: ticket.projectName,
+          ticketCode: ticket.code,
+          ticketTitle: ticket.title,
+          ticketType: ticket.type,
+          createdByName: creator.name,
+          ticketUrl,
+          locale: 'pt-BR',
+        });
+
+        await emailProvider.send({
+          to: email,
+          subject: emailData.subject,
+          text: emailData.text,
+          html: emailData.html,
+        });
+      } catch (err) {
+        logger.error({ err, ticketId, to: email }, 'Failed to send ticket created email to external address');
+      }
+    }
+
+    // 5. Maintain CC email behavior (independent of settings)
+    try {
+      const ccEmailData = buildTicketCreatedEmail({
         projectName: ticket.projectName,
         ticketCode: ticket.code,
         ticketTitle: ticket.title,
         ticketType: ticket.type,
         createdByName: creator.name,
         ticketUrl,
-        locale: 'pt-BR',
+        locale: toLocale(ticket.creatorLocale),
       });
-
-      await emailProvider.send({
-        to: email,
-        subject: emailData.subject,
-        text: emailData.text,
-        html: emailData.html,
-      });
+      await sendToCcRecipients(ticket, ccEmailData);
+    } catch (err) {
+      logger.error({ err, ticketId }, 'Failed to send ticket created email to CC recipients');
     }
-
-    // 5. Maintain CC email behavior (independent of settings)
-    const ccEmailData = buildTicketCreatedEmail({
-      projectName: ticket.projectName,
-      ticketCode: ticket.code,
-      ticketTitle: ticket.title,
-      ticketType: ticket.type,
-      createdByName: creator.name,
-      ticketUrl,
-      locale: toLocale(ticket.creatorLocale),
-    });
-    await sendToCcRecipients(ticket, ccEmailData);
 
     logger.info({ ticketId }, 'Ticket created notifications sent');
   } catch (err) {

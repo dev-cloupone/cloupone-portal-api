@@ -20,6 +20,7 @@ vi.mock('../../db/schema', () => ({
   projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', costRate: 'costRate', billingRate: 'billingRate', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   users: { id: 'id', name: 'name', email: 'email' },
   consultantProfiles: { userId: 'userId', hourlyRate: 'hourlyRate' },
+  projectNotificationSettings: { projectId: 'projectId', userId: 'userId', eventType: 'eventType' },
 }))
 
 vi.mock('../../utils/pagination', () => ({
@@ -189,6 +190,7 @@ describe('removeAllocation', () => {
 
     const deleteChain = createChain([])
     vi.mocked(db.delete).mockReturnValue(deleteChain as never)
+    vi.mocked(db.transaction).mockImplementation(async (fn) => fn(db as never))
 
     const result = await removeAllocation('p1', 'u1')
     expect(result).toEqual({ success: true })
@@ -198,5 +200,17 @@ describe('removeAllocation', () => {
   it('throws 404 when allocation not found', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([]) as never)
     await expect(removeAllocation('p1', 'u-none')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('removes notification settings along with the allocation', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([{ id: 'a1' }]) as never)
+    vi.mocked(db.delete).mockReturnValue(createChain([]) as never)
+    vi.mocked(db.transaction).mockImplementation(async (fn) => fn(db as never))
+
+    await removeAllocation('p1', 'u1')
+
+    // Uma delecao para a alocacao, outra para os settings de notificacao
+    expect(db.delete).toHaveBeenCalledTimes(2)
+    expect(db.transaction).toHaveBeenCalledTimes(1)
   })
 })

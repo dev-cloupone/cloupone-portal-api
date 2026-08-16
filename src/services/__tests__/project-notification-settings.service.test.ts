@@ -4,6 +4,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
   and: vi.fn((...args: unknown[]) => args),
   inArray: vi.fn((_col: unknown, vals: unknown[]) => ({ type: 'inArray', vals })),
+  sql: vi.fn((strings: TemplateStringsArray) => ({ type: 'sql', raw: strings.join('') })),
 }))
 
 vi.mock('../../db/schema', () => ({
@@ -34,6 +35,7 @@ vi.mock('../../db', () => ({
     insert: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   },
 }))
 
@@ -43,7 +45,10 @@ import {
 import { db } from '../../db'
 
 describe('project-notification-settings.service', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(db.transaction).mockImplementation(async (fn) => fn(db as never))
+  })
 
   describe('getSettings', () => {
     it('returns allocated users with their notification settings', async () => {
@@ -90,7 +95,66 @@ describe('project-notification-settings.service', () => {
 
       await expect(upsertSettings('p1', [
         { userId: 'u-invalid', eventType: 'ticket_created', channelEmail: true, channelInApp: true },
-      ])).rejects.toThrow('Usuarios nao alocados ao projeto')
+      ])).rejects.toThrow('Um ou mais usuários não estão alocados ao projeto.')
+    })
+
+    it('runs deletes and upserts inside a transaction', async () => {
+      vi.mocked(db.select).mockReturnValueOnce(createChain([{ userId: 'u1' }]) as never)
+      vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
+
+      await upsertSettings('p1', [
+        { userId: 'u1', eventType: 'ticket_created', channelEmail: true, channelInApp: false },
+      ])
+
+      expect(db.transaction).toHaveBeenCalledTimes(1)
+    })
+
+    it('groups deletes by eventType into a single query', async () => {
+      vi.mocked(db.select).mockReturnValueOnce(createChain([
+        { userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' },
+      ]) as never)
+      const deleteChain = createChain([])
+      vi.mocked(db.delete).mockReturnValue(deleteChain as never)
+
+      await upsertSettings('p1', [
+        { userId: 'u1', eventType: 'ticket_created', channelEmail: false, channelInApp: false },
+        { userId: 'u2', eventType: 'ticket_created', channelEmail: false, channelInApp: false },
+        { userId: 'u3', eventType: 'ticket_created', channelEmail: false, channelInApp: false },
+      ])
+
+      expect(db.delete).toHaveBeenCalledTimes(1)
+      const conditions = deleteChain.where.mock.calls[0][0] as unknown[]
+      expect(conditions).toContainEqual({ type: 'inArray', vals: ['u1', 'u2', 'u3'] })
+    })
+
+    it('inserts all upserts in a single batch', async () => {
+      vi.mocked(db.select).mockReturnValueOnce(createChain([
+        { userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }, { userId: 'u4' }, { userId: 'u5' },
+      ]) as never)
+      const insertChain = createChain([])
+      vi.mocked(db.insert).mockReturnValue(insertChain as never)
+
+      await upsertSettings('p1', ['u1', 'u2', 'u3', 'u4', 'u5'].map(userId => ({
+        userId, eventType: 'ticket_created', channelEmail: true, channelInApp: true,
+      })))
+
+      expect(db.insert).toHaveBeenCalledTimes(1)
+      expect(insertChain.values.mock.calls[0][0]).toHaveLength(5)
+    })
+
+    it('uses excluded.* in the conflict update so batch rows keep their own values', async () => {
+      vi.mocked(db.select).mockReturnValueOnce(createChain([{ userId: 'u1' }, { userId: 'u2' }]) as never)
+      const insertChain = createChain([])
+      vi.mocked(db.insert).mockReturnValue(insertChain as never)
+
+      await upsertSettings('p1', [
+        { userId: 'u1', eventType: 'ticket_created', channelEmail: true, channelInApp: false },
+        { userId: 'u2', eventType: 'ticket_created', channelEmail: false, channelInApp: true },
+      ])
+
+      const conflict = insertChain.onConflictDoUpdate.mock.calls[0][0] as { set: Record<string, unknown> }
+      expect(conflict.set.channelEmail).toEqual({ type: 'sql', raw: 'excluded.channel_email' })
+      expect(conflict.set.channelInApp).toEqual({ type: 'sql', raw: 'excluded.channel_in_app' })
     })
 
     it('deletes settings when both channels are false', async () => {
@@ -135,15 +199,34 @@ describe('project-notification-settings.service', () => {
       const result = await addEmail('p1', 'ext@test.com', 'ticket_created')
       expect(result).toEqual(expect.objectContaining({ email: 'ext@test.com' }))
     })
+
+    it('throws 409 when the email is already registered for the event', async () => {
+      // onConflictDoNothing devolve vazio na duplicata
+      vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
+
+      await expect(addEmail('p1', 'ext@test.com', 'ticket_created'))
+        .rejects.toMatchObject({ statusCode: 409 })
+    })
   })
 
   describe('removeEmail', () => {
-    it('removes email by id', async () => {
-      const chain = createChain([])
+    it('scopes the delete to the project', async () => {
+      const chain = createChain([{ id: 'e1' }])
       vi.mocked(db.delete).mockReturnValue(chain as never)
 
-      await removeEmail('e1')
+      await removeEmail('p1', 'e1')
+
       expect(db.delete).toHaveBeenCalled()
+      const conditions = chain.where.mock.calls[0][0] as { type: string; val: unknown }[]
+      expect(conditions).toContainEqual({ type: 'eq', val: 'e1' })
+      expect(conditions).toContainEqual({ type: 'eq', val: 'p1' })
+    })
+
+    it('throws 404 when nothing was deleted', async () => {
+      vi.mocked(db.delete).mockReturnValue(createChain([]) as never)
+
+      await expect(removeEmail('p1', 'e-other-project'))
+        .rejects.toMatchObject({ statusCode: 404 })
     })
   })
 })

@@ -72,8 +72,9 @@ const removeEmailSchema = z.object({
 
 const removeEmail: RequestHandler = async (req, res, next) => {
   try {
+    const projectId = projectIdSchema.parse(req.params.projectId);
     const { id } = removeEmailSchema.parse(req.params);
-    await settingsService.removeEmail(id);
+    await settingsService.removeEmail(projectId, id);
     res.json({ success: true });
   } catch (err) {
     next(err);

@@ -88,14 +88,25 @@ describe('projectNotificationSettingsController', () => {
   })
 
   describe('removeEmail', () => {
-    it('calls service with id from params', async () => {
+    it('calls service with projectId and id from params', async () => {
       vi.mocked(settingsService.removeEmail).mockResolvedValue(undefined)
 
       const { req, res, next } = createMocks({ params: { projectId: '550e8400-e29b-41d4-a716-446655440001', id: '550e8400-e29b-41d4-a716-446655440000' } })
       await ctrl.removeEmail(req, res, next)
 
-      expect(settingsService.removeEmail).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000')
+      expect(settingsService.removeEmail).toHaveBeenCalledWith(
+        '550e8400-e29b-41d4-a716-446655440001',
+        '550e8400-e29b-41d4-a716-446655440000',
+      )
       expect(res.json).toHaveBeenCalledWith({ success: true })
+    })
+
+    it('forwards an invalid projectId to next()', async () => {
+      const { req, res, next } = createMocks({ params: { projectId: 'not-a-uuid', id: '550e8400-e29b-41d4-a716-446655440000' } })
+      await ctrl.removeEmail(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(settingsService.removeEmail).not.toHaveBeenCalled()
     })
   })
 })

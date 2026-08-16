@@ -65,12 +65,22 @@ describe('notificationController', () => {
 
   describe('markAsRead', () => {
     it('returns 200', async () => {
-      vi.mocked(notificationService.markAsRead).mockResolvedValue(undefined as never)
+      vi.mocked(notificationService.markAsRead).mockResolvedValue({ id: 'n1' } as never)
 
       const { req, res, next } = createMocks({ params: { id: '550e8400-e29b-41d4-a716-446655440000' } })
       await ctrl.markAsRead(req, res, next)
 
       expect(res.json).toHaveBeenCalledWith({ success: true })
+    })
+
+    it('returns 404 when the service finds nothing to update', async () => {
+      vi.mocked(notificationService.markAsRead).mockResolvedValue(undefined as never)
+
+      const { req, res, next } = createMocks({ params: { id: '550e8400-e29b-41d4-a716-446655440000' } })
+      await ctrl.markAsRead(req, res, next)
+
+      expect(res.json).not.toHaveBeenCalled()
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }))
     })
   })
 
