@@ -275,6 +275,30 @@
       "tag": "0038_fix_fixed_price_billing_month",
       "breakpoints": true,
       "dialect": "postgresql"
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1781251200000,
+      "tag": "0039_add_notification_tables",
+      "breakpoints": true,
+      "dialect": "postgresql"
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1781337600000,
+      "tag": "0040_cleanup_orphan_notification_settings",
+      "breakpoints": true,
+      "dialect": "postgresql"
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781424000000,
+      "tag": "0041_add_notifications_user_created_index",
+      "breakpoints": true,
+      "dialect": "postgresql"
     }
   ]
 }

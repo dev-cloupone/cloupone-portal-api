@@ -36,6 +36,8 @@ import { expensePaymentRoutes } from './routes/expense-payment.routes';
 import { invoiceRoutes } from './routes/invoice.routes';
 import { installmentRoutes } from './routes/installment.routes';
 import { expenseInvoiceRoutes } from './routes/expense-invoice.routes';
+import { projectNotificationSettingsRoutes } from './routes/project-notification-settings.routes';
+import { notificationRoutes } from './routes/notification.routes';
 import { globalRateLimit } from './middlewares/rate-limit';
 import { logger } from './utils/logger';
 
@@ -95,6 +97,12 @@ app.use('/api/bank-accounts', bankAccountsPublicRoutes);
 app.use('/api/settings/public', publicSettingsRoutes);
 app.use('/api/uploads', uploadsRoutes);
 app.use('/api/clients', clientRoutes);
+// ATENCAO: precisa vir antes de phaseRoutes. phaseRoutes esta montado na raiz
+// `/api` e faz `router.use(auth)`, entao ele intercepta TODA requisicao sob /api
+// — inclusive as que nao casam com nenhuma rota sua. O stream SSE autentica por
+// query string (`sseAuth`), nao por header, e seria rejeitado com 401 ali antes
+// de chegar ao seu proprio middleware.
+app.use('/api/notifications', notificationRoutes);
 app.use('/api', phaseRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/consultants', consultantRoutes);
@@ -112,6 +120,7 @@ app.use('/api/monthly-timesheets', monthlyTimesheetRoutes);
 app.use('/api/payments/hours', consultantPaymentRoutes);
 app.use('/api/payments/expenses', expensePaymentRoutes);
 app.use('/api/projects/:projectId/installments', installmentRoutes);
+app.use('/api/projects/:projectId', projectNotificationSettingsRoutes);
 app.use('/api/invoices/services', invoiceRoutes);
 app.use('/api/invoices/expenses', expenseInvoiceRoutes);
 

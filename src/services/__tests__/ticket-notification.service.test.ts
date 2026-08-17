@@ -18,6 +18,13 @@ vi.mock('../../db/schema', () => ({
   projects: { id: 'id', name: 'name' },
   clients: { id: 'id', companyName: 'companyName' },
   projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId' },
+  projectNotificationSettings: {
+    userId: 'userId', projectId: 'projectId', eventType: 'eventType',
+    channelEmail: 'channelEmail', channelInApp: 'channelInApp',
+  },
+  projectNotificationEmails: {
+    projectId: 'projectId', email: 'email', eventType: 'eventType',
+  },
 }))
 
 vi.mock('../../config/env', () => ({
@@ -53,6 +60,11 @@ vi.mock('../../emails/ticket-attachment', () => ({
   buildTicketAttachmentEmail: vi.fn(() => ({ subject: 'Novo anexo', text: 'text', html: '<p>html</p>' })),
 }))
 
+const mockNotifCreate = vi.fn().mockResolvedValue({ id: 'notif-1' })
+vi.mock('../notification.service', () => ({
+  create: (...args: unknown[]) => mockNotifCreate(...args),
+}))
+
 import { createChain } from '../../__test-utils__/drizzle-chain'
 
 vi.mock('../../db', () => ({
@@ -83,81 +95,274 @@ const mockTicketData = {
 describe('notifyTicketCreated', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('sends email to managers allocated to the project', async () => {
-    // getTicketData
+  it('sends email only for users with channelEmail = true', async () => {
     const ticketChain = createChain([mockTicketData])
-    // getUserData (creator)
     const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
-    // managers query (gestors allocated to project)
-    const managersChain = createChain([
-      { id: 'u-gestor1', name: 'Maria', email: 'maria@test.com' },
-      { id: 'u-gestor2', name: 'Ana', email: 'ana@test.com' },
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: true, channelInApp: false, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+      { userId: 'u-gestor2', channelEmail: false, channelInApp: true, userEmail: 'ana@test.com', userName: 'Ana', userLocale: 'pt-BR' },
     ])
-
-    vi.mocked(db.select)
-      .mockReturnValueOnce(ticketChain as never)       // getTicketData
-      .mockReturnValueOnce(creatorChain as never)      // getUserData (creator)
-      .mockReturnValueOnce(managersChain as never)     // managers
-
-    await notifyTicketCreated('t1')
-
-    // Should send to both managers (neither is the creator)
-    expect(mockSend).toHaveBeenCalledTimes(2)
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'maria@test.com' }))
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'ana@test.com' }))
-  })
-
-  it('includes CC recipients when ticket is visible to client', async () => {
-    const ticketWithCc = { ...mockTicketData, isVisibleToClient: true, ccEmails: ['external@company.com'] }
-    const ticketChain = createChain([ticketWithCc])
-    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
-    const managersChain = createChain([])
+    const externalEmailsChain = createChain([])
 
     vi.mocked(db.select)
       .mockReturnValueOnce(ticketChain as never)
       .mockReturnValueOnce(creatorChain as never)
-      .mockReturnValueOnce(managersChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
 
     await notifyTicketCreated('t1')
 
-    // No managers, but CC should be sent
+    // Only Maria gets email (channelEmail=true), Ana doesn't
     expect(mockSend).toHaveBeenCalledTimes(1)
-    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'external@company.com' }))
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'maria@test.com' }))
   })
 
-  it('builds CC email using ticket creator locale', async () => {
-    const ticketWithCc = { ...mockTicketData, isVisibleToClient: true, ccEmails: ['external@company.com'], creatorLocale: 'en-US' }
-    const ticketChain = createChain([ticketWithCc])
-    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor', locale: 'en-US' }])
-    const managersChain = createChain([])
+  it('creates in-app notification for users with channelInApp = true', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: false, channelInApp: true, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
 
     vi.mocked(db.select)
       .mockReturnValueOnce(ticketChain as never)
       .mockReturnValueOnce(creatorChain as never)
-      .mockReturnValueOnce(managersChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
 
     await notifyTicketCreated('t1')
 
-    // CC email should be built with creator's locale (en-US)
-    const calls = vi.mocked(buildTicketCreatedEmail).mock.calls
-    const ccCall = calls[calls.length - 1][0]
-    expect(ccCall).toHaveProperty('locale', 'en-US')
+    expect(mockNotifCreate).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'u-gestor1',
+      type: 'ticket_created',
+    }))
   })
 
-  it('does not include CC when ticket is not visible to client', async () => {
-    const ticketNotVisible = { ...mockTicketData, isVisibleToClient: false, ccEmails: ['external@company.com'] }
-    const ticketChain = createChain([ticketNotVisible])
+  it('does not notify the ticket creator', async () => {
+    const ticketChain = createChain([mockTicketData])
     const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
-    const managersChain = createChain([])
+    const settingsChain = createChain([
+      { userId: 'u-creator', channelEmail: true, channelInApp: true, userEmail: 'joao@test.com', userName: 'João', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
 
     vi.mocked(db.select)
       .mockReturnValueOnce(ticketChain as never)
       .mockReturnValueOnce(creatorChain as never)
-      .mockReturnValueOnce(managersChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
 
     await notifyTicketCreated('t1')
 
     expect(mockSend).not.toHaveBeenCalled()
+    expect(mockNotifCreate).not.toHaveBeenCalled()
+  })
+
+  it('sends to external project emails', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([])
+    const externalEmailsChain = createChain([{ email: 'client@external.com' }])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    expect(mockSend).toHaveBeenCalledTimes(1)
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'client@external.com' }))
+  })
+
+  it('maintains CC email behavior', async () => {
+    const ticketWithCc = { ...mockTicketData, isVisibleToClient: true, ccEmails: ['cc@company.com'] }
+    const ticketChain = createChain([ticketWithCc])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    // CC should still be sent
+    expect(mockSend).toHaveBeenCalledTimes(1)
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'cc@company.com' }))
+  })
+
+  it('builds the in-app notification in pt-BR for a pt-BR user', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: false, channelInApp: true, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    expect(mockNotifCreate).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Novo ticket criado',
+      body: 'PRJ-001 — "Bug no login" foi criado por João no projeto Projeto Alpha.',
+    }))
+  })
+
+  it('builds the in-app notification in en-US for an en-US user', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: false, channelInApp: true, userEmail: 'john@test.com', userName: 'John', userLocale: 'en-US' },
+    ])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    expect(mockNotifCreate).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'New ticket created',
+      body: 'PRJ-001 — "Bug no login" was created by João in project Projeto Alpha.',
+    }))
+  })
+
+  it('does not notify users whose settings row is orphaned (unallocated)', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    // O innerJoin com projectAllocations elimina o registro orfao
+    const settingsChain = createChain([])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    expect(mockSend).not.toHaveBeenCalled()
+    expect(mockNotifCreate).not.toHaveBeenCalled()
+    // A query de settings faz join com users E com projectAllocations
+    expect(settingsChain.innerJoin).toHaveBeenCalledTimes(2)
+  })
+
+  it('filters inactive users in the settings query', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    const conditions = settingsChain.where.mock.calls[0][0] as { type: string; val: unknown }[]
+    expect(conditions).toContainEqual({ type: 'eq', val: true })
+  })
+
+  it('email failure does not block the in-app notification of the same user', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: true, channelInApp: true, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    mockSend.mockRejectedValueOnce(new Error('mailgun down'))
+
+    await notifyTicketCreated('t1')
+
+    expect(mockNotifCreate).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u-gestor1' }))
+  })
+
+  it('failure for one recipient does not block the next recipient', async () => {
+    const ticketChain = createChain([mockTicketData])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: true, channelInApp: false, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+      { userId: 'u-gestor2', channelEmail: true, channelInApp: false, userEmail: 'ana@test.com', userName: 'Ana', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    mockSend.mockRejectedValueOnce(new Error('mailgun down'))
+
+    await notifyTicketCreated('t1')
+
+    expect(mockSend).toHaveBeenCalledTimes(2)
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'ana@test.com' }))
+  })
+
+  it('failure sending to a recipient does not block the CC email', async () => {
+    const ticketWithCc = { ...mockTicketData, ccEmails: ['cc@company.com'] }
+    const ticketChain = createChain([ticketWithCc])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([
+      { userId: 'u-gestor1', channelEmail: true, channelInApp: false, userEmail: 'maria@test.com', userName: 'Maria', userLocale: 'pt-BR' },
+    ])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    mockSend.mockRejectedValueOnce(new Error('mailgun down'))
+
+    await notifyTicketCreated('t1')
+
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: 'cc@company.com' }))
+  })
+
+  it('sends nothing if no settings exist and no CC', async () => {
+    const ticketNoCc = { ...mockTicketData, ccEmails: [] }
+    const ticketChain = createChain([ticketNoCc])
+    const creatorChain = createChain([{ id: 'u-creator', name: 'João', email: 'joao@test.com', role: 'consultor' }])
+    const settingsChain = createChain([])
+    const externalEmailsChain = createChain([])
+
+    vi.mocked(db.select)
+      .mockReturnValueOnce(ticketChain as never)
+      .mockReturnValueOnce(creatorChain as never)
+      .mockReturnValueOnce(settingsChain as never)
+      .mockReturnValueOnce(externalEmailsChain as never)
+
+    await notifyTicketCreated('t1')
+
+    expect(mockSend).not.toHaveBeenCalled()
+    expect(mockNotifCreate).not.toHaveBeenCalled()
   })
 })
 

@@ -13,11 +13,12 @@ vi.mock('../../config/env', () => ({
 }))
 
 import jwt from 'jsonwebtoken'
-import { auth } from '../auth'
+import { auth, sseAuth } from '../auth'
 
-function createMocks(authHeader?: string) {
+function createMocks(authHeader?: string, query: Record<string, string> = {}) {
   const req = {
     headers: { authorization: authHeader },
+    query,
   } as unknown as Request
   const res = {} as Response
   const next = vi.fn() as unknown as NextFunction
@@ -90,6 +91,70 @@ describe('authMiddleware', () => {
     const { req, res, next } = createMocks('Bearer expired-token')
     auth(req, res, next)
     expect(next).toHaveBeenCalledWith(expect.any(AppError))
+    const err = vi.mocked(next).mock.calls[0][0] as AppError
+    expect(err.status).toBe(401)
+  })
+
+  it('rejects a token supplied via query string', () => {
+    const { req, res, next } = createMocks(undefined, { token: 'valid-token' })
+    auth(req, res, next)
+    expect(jwt.verify).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith(expect.any(AppError))
+    const err = vi.mocked(next).mock.calls[0][0] as AppError
+    expect(err.status).toBe(401)
+  })
+})
+
+describe('sseAuthMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('accepts a token from the query string and populates the request', () => {
+    vi.mocked(jwt.verify).mockReturnValue({
+      userId: 'u1', role: 'gestor', clientId: 'c1',
+    } as never)
+    const { req, res, next } = createMocks(undefined, { token: 'valid-token' })
+    sseAuth(req, res, next)
+    expect(jwt.verify).toHaveBeenCalledWith('valid-token', 'test-secret-key-32chars-minimum!!')
+    expect(req.userId).toBe('u1')
+    expect(req.userRole).toBe('gestor')
+    expect(req.userClientId).toBe('c1')
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('returns 401 when the token query param is repeated (array)', () => {
+    const req = { headers: {}, query: { token: ['a', 'b'] } } as unknown as Request
+    const next = vi.fn() as unknown as NextFunction
+    sseAuth(req, {} as Response, next)
+    expect(jwt.verify).not.toHaveBeenCalled()
+    const err = vi.mocked(next).mock.calls[0][0] as AppError
+    expect(err.status).toBe(401)
+  })
+
+  it('returns 401 when no token is present', () => {
+    const { req, res, next } = createMocks(undefined)
+    sseAuth(req, res, next)
+    expect(next).toHaveBeenCalledWith(expect.any(AppError))
+    const err = vi.mocked(next).mock.calls[0][0] as AppError
+    expect(err.status).toBe(401)
+  })
+
+  it('returns 401 when the token is invalid', () => {
+    vi.mocked(jwt.verify).mockImplementation(() => {
+      throw new Error('jwt expired')
+    })
+    const { req, res, next } = createMocks(undefined, { token: 'expired' })
+    sseAuth(req, res, next)
+    expect(next).toHaveBeenCalledWith(expect.any(AppError))
+    const err = vi.mocked(next).mock.calls[0][0] as AppError
+    expect(err.status).toBe(401)
+  })
+
+  it('ignores the Authorization header', () => {
+    const { req, res, next } = createMocks('Bearer header-token')
+    sseAuth(req, res, next)
+    expect(jwt.verify).not.toHaveBeenCalled()
     const err = vi.mocked(next).mock.calls[0][0] as AppError
     expect(err.status).toBe(401)
   })

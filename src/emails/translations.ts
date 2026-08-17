@@ -113,6 +113,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'ticketStatus.awaiting_third_party': 'Aguardando Terceiro',
     'ticketStatus.finished': 'Finalizado',
 
+    // Notification (in-app)
+    'notification.ticketCreated.title': 'Novo ticket criado',
+    'notification.ticketCreated.body': '{{code}} — "{{title}}" foi criado por {{createdBy}} no projeto {{projectName}}.',
+
     // Common
     'common.hello': 'Olá, {{name}}!',
   },
@@ -228,6 +232,10 @@ const translations: Record<Locale, Record<string, string>> = {
     'ticketStatus.awaiting_customer': 'Awaiting Customer Response',
     'ticketStatus.awaiting_third_party': 'Awaiting Third Party',
     'ticketStatus.finished': 'Finished',
+
+    // Notification (in-app)
+    'notification.ticketCreated.title': 'New ticket created',
+    'notification.ticketCreated.body': '{{code}} — "{{title}}" was created by {{createdBy}} in project {{projectName}}.',
 
     // Common
     'common.hello': 'Hi {{name}}!',

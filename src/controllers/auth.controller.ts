@@ -192,6 +192,21 @@ const register: RequestHandler = async (req, res, next) => {
   }
 };
 
+const updateNotifPrefsSchema = z.object({
+  urgentNotificationsEnabled: z.boolean().optional(),
+  notificationSoundEnabled: z.boolean().optional(),
+});
+
+const updateNotificationPreferences: RequestHandler = async (req, res, next) => {
+  try {
+    const data = updateNotifPrefsSchema.parse(req.body);
+    await authService.updateNotificationPreferences(req.userId!, data);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 const forceChangePasswordSchema = z.object({
   currentPassword: z.string().min(1, V.requiredFem('Senha atual')),
   newPassword: z.string().min(8, V.min('Nova senha', 8)),
@@ -226,4 +241,5 @@ export const authController = {
   getMyLoginHistory,
   register,
   forceChangePassword,
+  updateNotificationPreferences,
 };

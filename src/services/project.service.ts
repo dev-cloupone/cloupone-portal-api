@@ -1,6 +1,6 @@
 import { eq, and, count as drizzleCount, desc, inArray } from 'drizzle-orm';
 import { db } from '../db';
-import { projects, clients, projectAllocations, users, consultantProfiles } from '../db/schema';
+import { projects, clients, projectAllocations, users, consultantProfiles, projectNotificationSettings } from '../db/schema';
 import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
@@ -259,8 +259,18 @@ export async function removeAllocation(projectId: string, userId: string) {
 
   if (!existing) throw appError(PROJECT.ALLOCATION_NOT_FOUND, 404);
 
-  await db.delete(projectAllocations)
-    .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)));
+  await db.transaction(async (tx) => {
+    await tx.delete(projectAllocations)
+      .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)));
+
+    // Sem essa limpeza o registro fica orfao: continua disparando notificacao
+    // e some da tela de configuracao (getSettings parte de projectAllocations).
+    await tx.delete(projectNotificationSettings)
+      .where(and(
+        eq(projectNotificationSettings.projectId, projectId),
+        eq(projectNotificationSettings.userId, userId),
+      ));
+  });
 
   return { success: true };
 }
