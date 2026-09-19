@@ -266,7 +266,7 @@ describe('timeEntryController', () => {
     })
 
     it('passa userId e month para getLockStatusForUser', async () => {
-      const status = { lockedProjects: [], upcomingDeadlines: [] }
+      const status = { lockedProjects: [] }
       vi.mocked(timesheetLockService.getLockStatusForUser).mockResolvedValue(status as never)
 
       const { req, res, next } = createMocks({

@@ -2,7 +2,7 @@ import { eq, and, isNotNull, ne } from 'drizzle-orm';
 import { db } from '../db';
 import { projects, projectAllocations } from '../db/schema';
 import { appError } from '../utils/app-error';
-import { todayInBrazil, lastDayOfMonth, addDays, daysBetween, yearMonthOf } from '../utils/brazil-date';
+import { todayInBrazil, lastDayOfMonth, addDays, yearMonthOf } from '../utils/brazil-date';
 
 export const MSG = {
   PROJECT_LOCKED: {
@@ -14,9 +14,6 @@ export const MSG = {
 
 /** Roles que nunca sao barradas pela trava. */
 export const LOCK_BYPASS_ROLES: readonly string[] = ['super_admin', 'administrative'];
-
-/** Faltando <= N dias, o consultor ve o aviso de prazo proximo. */
-export const UPCOMING_DEADLINE_DAYS = 3;
 
 export async function isProjectLockedForDate(
   projectId: string,
@@ -58,27 +55,21 @@ export async function getLockStatusForUser(userId: string, month: string) {
       ne(projects.status, 'finished'),
     ));
 
-  if (rows.length === 0) return { lockedProjects: [], upcomingDeadlines: [] };
+  if (rows.length === 0) return { lockedProjects: [] };
 
   const today = todayInBrazil();
   const monthEnd = lastDayOfMonth(year, m);
 
   const lockedProjects: Array<{ projectId: string; projectName: string; deadline: string }> = [];
-  const upcomingDeadlines: Array<{ projectId: string; projectName: string; deadline: string; daysLeft: number }> = [];
 
   for (const r of rows) {
     const deadline = addDays(monthEnd, r.lockDays!);
-    if (today <= deadline) {
-      const daysLeft = daysBetween(today, deadline);
-      if (daysLeft <= UPCOMING_DEADLINE_DAYS) {
-        upcomingDeadlines.push({ projectId: r.projectId, projectName: r.projectName, deadline, daysLeft });
-      }
-    } else {
+    if (today > deadline) {
       lockedProjects.push({ projectId: r.projectId, projectName: r.projectName, deadline });
     }
   }
 
-  return { lockedProjects, upcomingDeadlines };
+  return { lockedProjects };
 }
 
 export async function getLockConfig(projectId: string) {

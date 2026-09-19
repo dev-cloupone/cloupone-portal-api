@@ -155,11 +155,11 @@ describe('getLockStatusForUser', () => {
   })
   afterEach(() => vi.useRealTimers())
 
-  it('retorna listas vazias quando o consultor nao tem projeto com prazo', async () => {
+  it('retorna lista vazia quando o consultor nao tem projeto com prazo', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([]) as never)
 
     const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result).toEqual({ lockedProjects: [], upcomingDeadlines: [] })
+    expect(result).toEqual({ lockedProjects: [] })
   })
 
   it('classifica projeto vencido como bloqueado', async () => {
@@ -169,32 +169,17 @@ describe('getLockStatusForUser', () => {
     ]) as never)
 
     const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result.lockedProjects).toEqual([{ projectId: 'p1', projectName: 'Projeto A', deadline: '2026-02-05' }])
-    expect(result.upcomingDeadlines).toEqual([])
+    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', deadline: '2026-02-05' }] })
   })
 
-  it('lista como prazo proximo quando faltam 3 dias ou menos', async () => {
-    vi.setSystemTime(new Date('2026-02-02T15:00:00Z')) // hoje = 02/02, deadline 05/02 -> faltam 3 dias
+  it('nao lista projeto ainda dentro do prazo', async () => {
+    vi.setSystemTime(new Date('2026-02-01T15:00:00Z')) // hoje = 01/02, deadline 05/02
     vi.mocked(db.select).mockReturnValue(createChain([
       { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
     ]) as never)
 
     const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result.upcomingDeadlines).toEqual([
-      { projectId: 'p1', projectName: 'Projeto A', deadline: '2026-02-05', daysLeft: 3 },
-    ])
-    expect(result.lockedProjects).toEqual([])
-  })
-
-  it('nao lista como prazo proximo quando faltam 4 dias', async () => {
-    vi.setSystemTime(new Date('2026-02-01T15:00:00Z')) // hoje = 01/02, deadline 05/02 -> faltam 4 dias
-    vi.mocked(db.select).mockReturnValue(createChain([
-      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
-    ]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result.upcomingDeadlines).toEqual([])
-    expect(result.lockedProjects).toEqual([])
+    expect(result).toEqual({ lockedProjects: [] })
   })
 
   it('ignora projetos finalizados', async () => {
