@@ -5,6 +5,7 @@ import { appError } from '../utils/app-error';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
+import * as timesheetLockService from './timesheet-lock.service';
 
 const MSG = {
   NOT_FOUND: { message: 'Apontamento não encontrado.', code: 'TIME_ENTRY_NOT_FOUND' },
@@ -22,6 +23,7 @@ const MSG = {
   TICKET_NOT_FOUND: { message: 'Ticket não encontrado.', code: 'TIME_ENTRY_TICKET_NOT_FOUND' },
   TICKET_NOT_IN_PROJECT: { message: 'Ticket não pertence ao projeto selecionado.', code: 'TIME_ENTRY_TICKET_NOT_IN_PROJECT' },
   PROJECT_FINISHED: { message: 'Não é possível registrar horas em um projeto finalizado.', code: 'PROJECT_FINISHED' },
+  PROJECT_LOCKED: timesheetLockService.MSG.PROJECT_LOCKED,
 } as const;
 
 // --- Time utility functions ---
@@ -275,6 +277,13 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   const [projectStatus] = await db.select({ status: projects.status }).from(projects).where(eq(projects.id, data.projectId)).limit(1);
   if (projectStatus?.status === 'finished') throw appError(MSG.PROJECT_FINISHED, 400);
 
+  // 4.6 Validar bloqueio por prazo do projeto (destino)
+  const bypassLock = timesheetLockService.LOCK_BYPASS_ROLES.includes(data.userRole ?? '');
+  if (!bypassLock) {
+    const check = await timesheetLockService.isProjectLockedForDate(data.projectId, data.date);
+    if (check.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+  }
+
   // 5. Validate ticket belongs to project (if provided)
   if (data.ticketId) {
     const [ticket] = await db
@@ -333,6 +342,12 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     if (!existing) throw appError(MSG.NOT_FOUND, 404);
     if (existing.userId !== data.userId) throw appError(MSG.NOT_OWNER, 403);
 
+    // 7.5 A entrada ORIGINAL tambem precisa estar liberada
+    if (!bypassLock && (existing.date !== data.date || existing.projectId !== data.projectId)) {
+      const orig = await timesheetLockService.isProjectLockedForDate(existing.projectId, existing.date);
+      if (orig.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+    }
+
     // 8. Validate overlap (excluding self)
     await validateOverlap(data.userId, data.date, startTime, endTime, data.id);
 
@@ -375,7 +390,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   return created;
 }
 
-export async function deleteTimeEntry(id: string, userId: string) {
+export async function deleteTimeEntry(id: string, userId: string, userRole?: string) {
   const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
   if (!entry) throw appError(MSG.NOT_FOUND, 404);
   if (entry.userId !== userId) throw appError(MSG.NOT_OWNER, 403);
@@ -384,6 +399,12 @@ export async function deleteTimeEntry(id: string, userId: string) {
   const { year, month } = extractYearMonth(entry.date);
   const isOpen = await monthlyTimesheetService.isMonthOpen(userId, year, month);
   if (!isOpen) throw appError(MSG.MONTH_CLOSED, 400);
+
+  // Validar bloqueio por prazo do projeto
+  if (!timesheetLockService.LOCK_BYPASS_ROLES.includes(userRole ?? '')) {
+    const check = await timesheetLockService.isProjectLockedForDate(entry.projectId, entry.date);
+    if (check.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+  }
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
 }
