@@ -299,6 +299,14 @@
       "tag": "0041_add_notifications_user_created_index",
       "breakpoints": true,
       "dialect": "postgresql"
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1781510400000,
+      "tag": "0042_timesheet_project_lock",
+      "breakpoints": true,
+      "dialect": "postgresql"
     }
   ]
 }

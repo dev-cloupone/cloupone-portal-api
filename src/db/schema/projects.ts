@@ -15,6 +15,7 @@ export const projects = pgTable('projects', {
   fixedPriceTotal: decimal('fixed_price_total', { precision: 12, scale: 2 }),
   budgetHours: integer('budget_hours'),
   budgetType: varchar('budget_type', { length: 20 }).default('monthly'),
+  timesheetLockDays: integer('timesheet_lock_days'),
   startDate: timestamp('start_date'),
   endDate: timestamp('end_date'),
   ticketPrefix: varchar('ticket_prefix', { length: 10 }),

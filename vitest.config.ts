@@ -19,6 +19,7 @@ export default defineConfig({
         // Utils (8 testes)
         'utils/validate-cnpj.ts',
         'utils/business-days.ts',
+        'utils/brazil-date.ts',
         'utils/pagination.ts',
         'utils/sanitize.ts',
         'utils/escape-like.ts',
@@ -34,6 +35,7 @@ export default defineConfig({
         'services/auth.service.ts',
         'services/password-reset.service.ts',
         'services/time-entry.service.ts',
+        'services/timesheet-lock.service.ts',
         'services/monthly-timesheet.service.ts',
         'services/project.service.ts',
         'services/ticket.service.ts',

@@ -42,6 +42,16 @@ vi.mock('../monthly-timesheet.service', () => ({
   getIfExists: mockGetIfExists,
 }))
 
+const { mockIsProjectLockedForDate } = vi.hoisted(() => ({
+  mockIsProjectLockedForDate: vi.fn().mockResolvedValue({ locked: false }),
+}))
+
+vi.mock('../timesheet-lock.service', () => ({
+  isProjectLockedForDate: mockIsProjectLockedForDate,
+  LOCK_BYPASS_ROLES: ['super_admin', 'administrative'],
+  MSG: { PROJECT_LOCKED: { message: 'Projeto bloqueado para apontamentos deste mês. Contate o administrador do sistema.', code: 'TIME_ENTRY_PROJECT_LOCKED' } },
+}))
+
 vi.mock('../../db', () => ({
   db: {
     select: vi.fn(),
@@ -97,6 +107,7 @@ describe('upsertTimeEntry', () => {
     vi.clearAllMocks()
     mockIsMonthOpen.mockResolvedValue(true)
     mockGetOrCreate.mockResolvedValue({ id: 'ts1', status: 'open' })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
   })
 
   it('creates new entry with valid data', async () => {
@@ -165,12 +176,152 @@ describe('upsertTimeEntry', () => {
     expect(valuesCall.startTime).toBe('08:30')
     expect(valuesCall.endTime).toBe('09:35')
   })
+
+  it('rejeita quando o projeto esta bloqueado para consultor', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    await expect(upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      subphaseId: 'sp1', userRole: 'consultor',
+    })).rejects.toMatchObject({ status: 400, code: 'TIME_ENTRY_PROJECT_LOCKED' })
+  })
+
+  it('rejeita quando o projeto esta bloqueado para gestor', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    await expect(upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      subphaseId: 'sp1', userRole: 'gestor',
+    })).rejects.toMatchObject({ status: 400, code: 'TIME_ENTRY_PROJECT_LOCKED' })
+  })
+
+  it('permite quando o ator e super_admin', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sp1' }]) as never // subphase pertence ao projeto
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: true }]) as never
+      return createChain([]) as never
+    })
+    vi.mocked(db.insert).mockReturnValue(createChain([{ id: 'new-entry' }]) as never)
+
+    const result = await upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      subphaseId: 'sp1', userRole: 'super_admin',
+    })
+    expect(result.id).toBe('new-entry')
+    expect(mockIsProjectLockedForDate).not.toHaveBeenCalled()
+  })
+
+  it('permite quando o ator e administrative', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // link subphase_consultants
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: true }]) as never
+      return createChain([]) as never
+    })
+    vi.mocked(db.insert).mockReturnValue(createChain([{ id: 'new-entry' }]) as never)
+
+    const result = await upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      subphaseId: 'sp1', userRole: 'administrative',
+    })
+    expect(result.id).toBe('new-entry')
+    expect(mockIsProjectLockedForDate).not.toHaveBeenCalled()
+  })
+
+  it('rejeita mover apontamento de mes travado para mes aberto', async () => {
+    let selectCall = 0
+    const existing = { id: 'e1', userId: 'u1', projectId: 'p1', date: '2024-05-10' }
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never // allocation
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never // project status
+      if (selectCall === 3) return createChain([existing]) as never // existing entry
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate
+      .mockResolvedValueOnce({ locked: false }) // destino: mes corrente liberado
+      .mockResolvedValueOnce({ locked: true }) // origem: mes vencido travado
+
+    await expect(upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      id: 'e1', userRole: 'consultor',
+    })).rejects.toMatchObject({ status: 400, code: 'TIME_ENTRY_PROJECT_LOCKED' })
+
+    expect(mockIsProjectLockedForDate).toHaveBeenNthCalledWith(1, 'p1', '2024-06-10')
+    expect(mockIsProjectLockedForDate).toHaveBeenNthCalledWith(2, 'p1', '2024-05-10')
+  })
+
+  it('nao consulta a origem quando a edicao nao muda data nem projeto', async () => {
+    let selectCall = 0
+    const existing = { id: 'e1', userId: 'u1', projectId: 'p1', date: '2024-06-10' }
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([existing]) as never
+      if (selectCall === 4) return createChain([{ allowOverlappingEntries: true }]) as never
+      return createChain([]) as never
+    })
+    vi.mocked(db.update).mockReturnValue(createChain([{ id: 'e1', hours: '1.00' }]) as never)
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
+
+    await upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      id: 'e1', userRole: 'consultor',
+    })
+
+    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('retorna 403 antes da trava quando o ator nao e dono', async () => {
+    let selectCall = 0
+    const existing = { id: 'e1', userId: 'other-user', projectId: 'p1', date: '2024-05-10' }
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([existing]) as never
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
+
+    await expect(upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '09:00', endTime: '10:00',
+      id: 'e1', userRole: 'consultor',
+    })).rejects.toMatchObject({ status: 403 })
+
+    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('deleteTimeEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsMonthOpen.mockResolvedValue(true)
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
   })
 
   it('deletes own user entry', async () => {
@@ -180,6 +331,25 @@ describe('deleteTimeEntry', () => {
 
     await expect(deleteTimeEntry('e1', 'u1')).resolves.toBeUndefined()
     expect(db.delete).toHaveBeenCalled()
+  })
+
+  it('rejeita exclusao em projeto bloqueado para consultor', async () => {
+    const entry = { id: 'e1', userId: 'u1', projectId: 'p1', date: '2024-05-10' }
+    vi.mocked(db.select).mockReturnValue(createChain([entry]) as never)
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    await expect(deleteTimeEntry('e1', 'u1', 'consultor'))
+      .rejects.toMatchObject({ status: 400, code: 'TIME_ENTRY_PROJECT_LOCKED' })
+  })
+
+  it('permite exclusao para super_admin', async () => {
+    const entry = { id: 'e1', userId: 'u1', projectId: 'p1', date: '2024-05-10' }
+    vi.mocked(db.select).mockReturnValue(createChain([entry]) as never)
+    vi.mocked(db.delete).mockReturnValue(createChain() as never)
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    await expect(deleteTimeEntry('e1', 'u1', 'super_admin')).resolves.toBeUndefined()
+    expect(mockIsProjectLockedForDate).not.toHaveBeenCalled()
   })
 
   it('throws 404 for non-existent entry', async () => {
@@ -257,6 +427,7 @@ describe('upsertTimeEntry - additional branches', () => {
     vi.clearAllMocks()
     mockIsMonthOpen.mockResolvedValue(true)
     mockGetOrCreate.mockResolvedValue({ id: 'ts1', status: 'open' })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
   })
 
   it('throws 400 when start time is after end time', async () => {

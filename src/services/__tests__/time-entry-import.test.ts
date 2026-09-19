@@ -36,6 +36,15 @@ vi.mock('../monthly-timesheet.service', () => ({
   getOrCreate: mockGetOrCreate,
 }))
 
+const { mockIsProjectLockedForDate } = vi.hoisted(() => ({
+  mockIsProjectLockedForDate: vi.fn().mockResolvedValue({ locked: false }),
+}))
+
+vi.mock('../timesheet-lock.service', () => ({
+  isProjectLockedForDate: mockIsProjectLockedForDate,
+  LOCK_BYPASS_ROLES: ['super_admin', 'administrative'],
+}))
+
 const mockTx = {
   select: vi.fn(),
   insert: vi.fn(),
@@ -149,6 +158,7 @@ describe('validateImport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsMonthOpen.mockResolvedValue(true)
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
   })
 
   function setupValidRow() {
@@ -314,6 +324,78 @@ describe('validateImport', () => {
     expect(result.rows[0].message).toContain('duplicado')
     expect(result.rows[0].resolvedIds).toBeTruthy()
   })
+
+  it('reporta linha como erro quando o projeto esta bloqueado', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      if (selectCall === 2) return createChain([{ id: 'p1' }]) as never // project
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    const rows = [{ date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '18:00' }]
+    const result = await validateImport(rows, 'u1', 'u1', 'consultor')
+
+    expect(result.errors).toBe(1)
+    expect(result.rows[0].status).toBe('error')
+    expect(result.rows[0].message).toContain('Contate o administrador')
+    expect(result.rows[0].resolvedIds).toBeNull()
+  })
+
+  it('nao reporta erro de bloqueio quando o ator e super_admin', async () => {
+    // super_admin nao passa pelo link subphase_consultants (so consultor passa)
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      if (selectCall === 2) return createChain([{ id: 'p1' }]) as never // project
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 't1' }]) as never // ticket
+      if (selectCall === 5) return createChain([]) as never // no overlap
+      if (selectCall === 6) return createChain([]) as never // no duplicate
+      return createChain([]) as never
+    })
+
+    const rows = [{
+      date: '02/06/2026', project: 'Projeto A', phase: 'Fase 1', subphase: 'Subfase 1',
+      ticket: 'TK-001', startTime: '09:00', endTime: '18:00', description: 'test',
+    }]
+    const result = await validateImport(rows, 'u1', 'u1', 'super_admin')
+    expect(result.valid).toBe(1)
+    expect(result.errors).toBe(0)
+    expect(mockIsProjectLockedForDate).not.toHaveBeenCalled()
+  })
+
+  it('reutiliza o resultado da trava para linhas do mesmo projeto e mes', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      // Row 1
+      if (selectCall === 2) return createChain([{ id: 'p1' }]) as never // project
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // link
+      if (selectCall === 5) return createChain([]) as never // no overlap
+      if (selectCall === 6) return createChain([]) as never // no duplicate
+      // Row 2 (mesmo projeto e mes)
+      if (selectCall === 7) return createChain([{ id: 'p1' }]) as never // project
+      if (selectCall === 8) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 9) return createChain([{ id: 'sc1' }]) as never // link
+      if (selectCall === 10) return createChain([]) as never // no overlap
+      if (selectCall === 11) return createChain([]) as never // no duplicate
+      return createChain([]) as never
+    })
+
+    const rows = [
+      { date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '10:00' },
+      { date: '03/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '11:00', endTime: '12:00' },
+    ]
+    const result = await validateImport(rows, 'u1', 'u1', 'consultor')
+    expect(result.valid).toBe(2)
+    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('confirmImport', () => {
@@ -321,6 +403,7 @@ describe('confirmImport', () => {
     vi.clearAllMocks()
     mockIsMonthOpen.mockResolvedValue(true)
     mockGetOrCreate.mockResolvedValue({ id: 'ts1', status: 'open' })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: false })
   })
 
   it('inserts all entries in transaction', async () => {
@@ -390,6 +473,34 @@ describe('confirmImport', () => {
       }],
       includeDuplicates: false,
     }, 'u1', 'consultor', 'test.xlsx')).rejects.toThrow('Consultor não está alocado')
+  })
+
+  it('aborta o confirmImport inteiro quando um projeto esta bloqueado', async () => {
+    let mainSelectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      mainSelectCall++
+      if (mainSelectCall === 1) return createChain([]) as never // no duplicate
+      if (mainSelectCall === 2) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      return createChain([]) as never
+    })
+    mockIsProjectLockedForDate.mockResolvedValue({ locked: true })
+
+    vi.mocked(db.transaction).mockImplementation(async (fn) => {
+      const tx = {
+        select: vi.fn(),
+        insert: vi.fn(),
+      }
+      return fn(tx as never)
+    })
+
+    await expect(confirmImport({
+      consultantId: 'u1',
+      rows: [{
+        date: '2026-06-02', startTime: '09:00', endTime: '18:00',
+        projectId: 'p1', subphaseId: 'sp1', ticketId: null, description: null,
+      }],
+      includeDuplicates: false,
+    }, 'u1', 'consultor', 'test.xlsx')).rejects.toMatchObject({ code: 'IMPORT_PROJECT_LOCKED_ABORT' })
   })
 
   it('respects includeDuplicates=false (skips duplicates)', async () => {

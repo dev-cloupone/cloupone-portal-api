@@ -8,6 +8,8 @@ import {
 } from '../db/schema';
 import { AppError, appError } from '../utils/app-error';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
+import { isProjectLockedForDate, LOCK_BYPASS_ROLES } from './timesheet-lock.service';
+import { yearMonthOf } from '../utils/brazil-date';
 
 const MSG = {
   INVALID_FORMAT: { message: 'Formato inválido. Use .xlsx ou .csv.', code: 'IMPORT_INVALID_FORMAT' },
@@ -340,6 +342,20 @@ export async function validateImport(
   // Track validated entries for intra-file overlap detection
   const validEntries: Array<{ date: string; startMin: number; endMin: number }> = [];
 
+  const bypassLock = LOCK_BYPASS_ROLES.includes(actorRole);
+  const lockMemo = new Map<string, boolean>();
+
+  async function isLocked(projectId: string, date: string): Promise<boolean> {
+    if (bypassLock) return false;
+    const { year, month } = yearMonthOf(date);
+    const key = `${projectId}|${year}-${month}`;
+    const cached = lockMemo.get(key);
+    if (cached !== undefined) return cached;
+    const { locked } = await isProjectLockedForDate(projectId, date);
+    lockMemo.set(key, locked);
+    return locked;
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
@@ -389,6 +405,19 @@ export async function validateImport(
     if (!project) {
       errors++;
       validatedRows.push({ row: rowNum, data: row, status: 'error', message: `Projeto não encontrado ou não alocado: "${row.project}".`, resolvedIds: null });
+      continue;
+    }
+
+    // 5.5 Validar bloqueio por prazo do projeto
+    if (await isLocked(project.id, dateResult.isoDate)) {
+      errors++;
+      validatedRows.push({
+        row: rowNum,
+        data: row,
+        status: 'error',
+        message: 'Projeto bloqueado para apontamentos deste mês. Contate o administrador do sistema.',
+        resolvedIds: null,
+      });
       continue;
     }
 
@@ -553,6 +582,18 @@ export async function confirmImport(
       // Revalidate: month open
       const isOpen = await monthlyTimesheetService.isMonthOpen(consultantId, year, month);
       if (!isOpen) throw new AppError(`Mês ${month}/${year} está aprovado. Importação cancelada.`, 400, 'IMPORT_MONTH_APPROVED_ABORT');
+
+      // Revalidate: projeto bloqueado por prazo
+      if (!LOCK_BYPASS_ROLES.includes(actorRole)) {
+        const { locked } = await isProjectLockedForDate(row.projectId, row.date);
+        if (locked) {
+          throw new AppError(
+            `Projeto bloqueado para apontamentos de ${month}/${year}. Importação cancelada.`,
+            400,
+            'IMPORT_PROJECT_LOCKED_ABORT',
+          );
+        }
+      }
 
       // Revalidate: allocation
       const [allocation] = await tx.select({ id: projectAllocations.id })
