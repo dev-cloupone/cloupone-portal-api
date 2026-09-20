@@ -3,7 +3,9 @@ import { z } from 'zod';
 import * as ticketService from '../services/ticket.service';
 import { paginationSchema } from '../utils/pagination';
 import { V } from '../utils/validation-messages';
-import { getUserClientId } from '../services/user.service';
+import { getUserClientId, getUserLocale } from '../services/user.service';
+import { appError } from '../utils/app-error';
+import { buildTicketExportWorkbook, buildExportFilename } from '../services/ticket-export.service';
 
 const idSchema = z.string().uuid();
 
@@ -39,7 +41,7 @@ const updateTicketSchema = z.object({
   ccEmails: ccEmailsSchema,
 });
 
-const listTicketsSchema = z.object({
+const ticketFiltersSchema = z.object({
   projectId: z.string().uuid().optional(),
   status: z.string().optional(),
   type: z.enum(['system_error', 'question', 'improvement', 'security']).optional(),
@@ -50,7 +52,9 @@ const listTicketsSchema = z.object({
   sort: z.enum(['created_at', 'updated_at', 'priority', 'status']).optional(),
   order: z.enum(['asc', 'desc']).optional(),
   finishedAfter: z.string().optional(),
-}).merge(paginationSchema);
+});
+
+const listTicketsSchema = ticketFiltersSchema.merge(paginationSchema);
 
 const createCommentSchema = z.object({
   content: z.string().min(1, V.required('Conteudo')).max(10000),
@@ -132,6 +136,40 @@ const getStats: RequestHandler = async (req, res, next) => {
       projectId,
     });
     res.json(stats);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const EXPORT_MSG = {
+  NO_RESULTS: { message: 'Nenhum ticket encontrado com os filtros aplicados.', code: 'TICKET_EXPORT_NO_RESULTS' },
+} as const;
+
+const exportTickets: RequestHandler = async (req, res, next) => {
+  try {
+    const filters = ticketFiltersSchema.parse(req.query);
+    const userClientId = await getUserClientId(req.userId!, req.userRole!);
+    const scope = { userId: req.userId!, userRole: req.userRole!, userClientId };
+
+    const count = await ticketService.countTicketsForExport(filters, scope);
+    if (count === 0) {
+      throw appError(EXPORT_MSG.NO_RESULTS, 404);
+    }
+    if (count > ticketService.MAX_EXPORT_TICKETS) {
+      throw appError({
+        message: `Muitos tickets encontrados (${count}). Refine os filtros para exportar no máximo ${ticketService.MAX_EXPORT_TICKETS} tickets.`,
+        code: 'TICKET_EXPORT_LIMIT_EXCEEDED',
+      }, 422);
+    }
+
+    const rows = await ticketService.listTicketsForExport(filters, scope);
+    const userLocale = await getUserLocale(req.userId!);
+    const buffer = buildTicketExportWorkbook(rows, userLocale);
+    const filename = buildExportFilename(filters.projectId ? rows[0]?.projectName : undefined);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -256,6 +294,7 @@ export const ticketController = {
   getById,
   update,
   getStats,
+  exportTickets,
   addComment,
   listComments,
   listHistory,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { auth } from '../middlewares/auth';
 import { authenticatedRateLimit } from '../middlewares/rate-limit';
+import { authorize } from '../middlewares/authorize';
 import { ticketController } from '../controllers/ticket.controller';
 
 const router = Router();
@@ -11,6 +12,7 @@ router.use(auth, authenticatedRateLimit);
 router.post('/', ticketController.create);
 router.get('/', ticketController.list);
 router.get('/stats', ticketController.getStats);
+router.get('/export', authorize('super_admin', 'gestor', 'consultor'), ticketController.exportTickets);
 router.get('/:id', ticketController.getById);
 router.patch('/:id', ticketController.update);
 

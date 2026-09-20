@@ -1,4 +1,4 @@
-import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray, ne, gte } from 'drizzle-orm';
+import { eq, and, ilike, or, count as drizzleCount, desc, asc, sql, inArray, ne, gte, type SQL } from 'drizzle-orm';
 import { db } from '../db';
 import { tickets, ticketComments, ticketHistory, ticketAttachments, users, projects, clients, projectAllocations, files, timeEntries } from '../db/schema';
 import { deleteFile } from './file.service';
@@ -774,6 +774,159 @@ export async function getTicketStats(params: {
 
 function emptyStats() {
   return { byStatus: {}, byPriority: {}, byType: {}, unassigned: 0, myAssigned: 0, recentlyOpened: 0 };
+}
+
+// --- Export ---
+
+export const MAX_EXPORT_TICKETS = 5000;
+
+export interface TicketExportScope {
+  userId: string;
+  userRole: string;
+  userClientId?: string;
+}
+
+export interface TicketExportFilters {
+  projectId?: string;
+  status?: string;
+  type?: string;
+  priority?: string;
+  assignedTo?: string;
+  createdBy?: string;
+  search?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  finishedAfter?: string;
+}
+
+export interface TicketExportRow {
+  code: string;
+  title: string;
+  status: string;
+  priority: string;
+  type: string;
+  projectName: string;
+  clientName: string;
+  assignedToName: string | null;
+  createdByName: string;
+  createdAt: Date;
+  dueDate: string | null;
+  lastComment: { authorName: string; content: string } | null;
+}
+
+// Copia isolada do bloco de userScope+filtros de listTickets, compartilhada
+// só entre countTicketsForExport/listTicketsForExport (decisão: duplicar, não extrair).
+async function buildExportConditions(filters: TicketExportFilters, scope: TicketExportScope) {
+  const { userId, userRole, userClientId } = scope;
+  const conditions: SQL[] = [];
+
+  if (userRole === 'client') {
+    if (!userClientId) return { conditions, empty: true };
+    conditions.push(eq(tickets.isVisibleToClient, true));
+    const clientProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.clientId, userClientId));
+    if (clientProjects.length === 0) return { conditions, empty: true };
+    conditions.push(inArray(tickets.projectId, clientProjects.map(p => p.id)));
+  } else if (userRole === 'gestor' || userRole === 'consultor') {
+    const allocations = await db.select({ projectId: projectAllocations.projectId }).from(projectAllocations).where(eq(projectAllocations.userId, userId));
+    if (allocations.length === 0) return { conditions, empty: true };
+    conditions.push(inArray(tickets.projectId, allocations.map(a => a.projectId)));
+  }
+
+  if (filters.projectId) conditions.push(eq(tickets.projectId, filters.projectId));
+  if (filters.status) {
+    const statuses = filters.status.split(',') as Array<'open' | 'in_analysis' | 'awaiting_customer' | 'awaiting_third_party' | 'finished'>;
+    conditions.push(statuses.length === 1 ? eq(tickets.status, statuses[0]) : inArray(tickets.status, statuses));
+  }
+  if (filters.type) conditions.push(eq(tickets.type, filters.type as 'system_error' | 'question' | 'improvement' | 'security'));
+  if (filters.priority) conditions.push(eq(tickets.priority, filters.priority as 'low' | 'medium' | 'high' | 'critical'));
+  if (filters.assignedTo) conditions.push(eq(tickets.assignedTo, filters.assignedTo));
+  if (filters.createdBy) conditions.push(eq(tickets.createdBy, filters.createdBy));
+  if (filters.search) conditions.push(or(ilike(tickets.title, `%${filters.search}%`), ilike(tickets.description, `%${filters.search}%`))!);
+  if (filters.finishedAfter) conditions.push(or(ne(tickets.status, 'finished'), gte(tickets.resolvedAt, new Date(filters.finishedAfter)))!);
+
+  return { conditions, empty: false };
+}
+
+export async function countTicketsForExport(filters: TicketExportFilters, scope: TicketExportScope): Promise<number> {
+  const { conditions, empty } = await buildExportConditions(filters, scope);
+  if (empty) return 0;
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const [{ total }] = await db.select({ total: drizzleCount() }).from(tickets).where(where);
+  return total;
+}
+
+export async function listTicketsForExport(filters: TicketExportFilters, scope: TicketExportScope): Promise<TicketExportRow[]> {
+  const { conditions, empty } = await buildExportConditions(filters, scope);
+  if (empty) return [];
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  let orderBy;
+  const direction = filters.order === 'asc' ? asc : desc;
+  switch (filters.sort) {
+    case 'priority': orderBy = direction(tickets.priority); break;
+    case 'status': orderBy = direction(tickets.status); break;
+    case 'updated_at': orderBy = direction(tickets.updatedAt); break;
+    default: orderBy = direction(tickets.createdAt);
+  }
+
+  const data = await db
+    .select({
+      id: tickets.id,
+      code: tickets.code,
+      title: tickets.title,
+      status: tickets.status,
+      priority: tickets.priority,
+      type: tickets.type,
+      projectName: projects.name,
+      clientName: clients.companyName,
+      assignedTo: tickets.assignedTo,
+      createdByName: users.name,
+      createdAt: tickets.createdAt,
+      dueDate: tickets.dueDate,
+    })
+    .from(tickets)
+    .innerJoin(projects, eq(tickets.projectId, projects.id))
+    .innerJoin(clients, eq(projects.clientId, clients.id))
+    .innerJoin(users, eq(tickets.createdBy, users.id))
+    .where(where)
+    .orderBy(orderBy);
+
+  const assignedIds = [...new Set(data.filter(t => t.assignedTo).map(t => t.assignedTo!))];
+  const assigneeMap = new Map<string, string>();
+  if (assignedIds.length > 0) {
+    const assignees = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, assignedIds));
+    for (const a of assignees) assigneeMap.set(a.id, a.name);
+  }
+
+  const ticketIds = data.map(t => t.id);
+  const lastCommentMap = new Map<string, { authorName: string; content: string }>();
+  if (ticketIds.length > 0) {
+    const comments = await db
+      .select({ ticketId: ticketComments.ticketId, authorName: users.name, content: ticketComments.content })
+      .from(ticketComments)
+      .innerJoin(users, eq(ticketComments.userId, users.id))
+      .where(and(eq(ticketComments.isInternal, false), inArray(ticketComments.ticketId, ticketIds)))
+      .orderBy(desc(ticketComments.createdAt));
+    // comments vem ordenado por createdAt desc: a primeira ocorrência de cada ticketId já é a mais recente.
+    for (const c of comments) {
+      if (!lastCommentMap.has(c.ticketId)) lastCommentMap.set(c.ticketId, { authorName: c.authorName, content: c.content });
+    }
+  }
+
+  return data.map((t) => ({
+    code: t.code,
+    title: t.title,
+    status: t.status,
+    priority: t.priority,
+    type: t.type,
+    projectName: t.projectName,
+    clientName: t.clientName,
+    assignedToName: t.assignedTo ? (assigneeMap.get(t.assignedTo) ?? null) : null,
+    createdByName: t.createdByName,
+    createdAt: t.createdAt,
+    dueDate: t.dueDate,
+    lastComment: lastCommentMap.get(t.id) ?? null,
+  }));
 }
 
 // --- Helpers for notification service ---
