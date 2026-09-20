@@ -182,6 +182,11 @@ export async function getUserClientId(userId: string, userRole: string): Promise
   return user?.clientId ?? undefined;
 }
 
+export async function getUserLocale(userId: string): Promise<string | null> {
+  const [user] = await db.select({ locale: users.locale }).from(users).where(eq(users.id, userId)).limit(1);
+  return user?.locale ?? null;
+}
+
 export async function deactivateUser(id: string, requestingUserId: string) {
   if (id === requestingUserId) {
     throw appError(USER.CANNOT_DEACTIVATE_SELF, 400);

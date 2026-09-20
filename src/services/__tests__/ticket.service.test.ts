@@ -83,7 +83,7 @@ vi.mock('../../db', () => ({
 import {
   createTicket, updateTicket, getTicketById, addComment, getTicketStats,
   listTickets, listComments, removeAttachment, addAttachment, listHistory,
-  listAttachments, listTicketTimeEntries,
+  listAttachments, listTicketTimeEntries, countTicketsForExport, listTicketsForExport,
 } from '../ticket.service'
 import { db } from '../../db'
 
@@ -1430,5 +1430,223 @@ describe('createTicket – additional branches', () => {
         type: 'question', title: 'Teste',
       })
     ).rejects.toThrow('Projeto não encontrado.')
+  })
+})
+
+// ─── countTicketsForExport ──────────────────────────────────────────
+
+describe('countTicketsForExport', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('counts without scope restriction for super_admin', async () => {
+    const countChain = createChain([{ total: 42 }])
+    vi.mocked(db.select).mockReturnValueOnce(countChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u-admin', userRole: 'super_admin' })
+    expect(result).toBe(42)
+  })
+
+  it('returns 0 for client without userClientId', async () => {
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'client' })
+    expect(result).toBe(0)
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
+  it('returns 0 for client with no projects', async () => {
+    const clientProjectsChain = createChain([])
+    vi.mocked(db.select).mockReturnValueOnce(clientProjectsChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'client', userClientId: 'c1' })
+    expect(result).toBe(0)
+  })
+
+  it('applies isVisibleToClient + project scope for client with projects', async () => {
+    const clientProjectsChain = createChain([{ id: 'p1' }])
+    const countChain = createChain([{ total: 3 }])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(clientProjectsChain as never)
+      .mockReturnValueOnce(countChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'client', userClientId: 'c1' })
+    expect(result).toBe(3)
+  })
+
+  it('returns 0 for gestor with no allocations', async () => {
+    const allocationsChain = createChain([])
+    vi.mocked(db.select).mockReturnValueOnce(allocationsChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'gestor' })
+    expect(result).toBe(0)
+  })
+
+  it('returns 0 for consultor with no allocations', async () => {
+    const allocationsChain = createChain([])
+    vi.mocked(db.select).mockReturnValueOnce(allocationsChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'consultor' })
+    expect(result).toBe(0)
+  })
+
+  it('counts for gestor with allocations', async () => {
+    const allocationsChain = createChain([{ projectId: 'p1' }])
+    const countChain = createChain([{ total: 7 }])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(allocationsChain as never)
+      .mockReturnValueOnce(countChain as never)
+
+    const result = await countTicketsForExport({}, { userId: 'u1', userRole: 'gestor' })
+    expect(result).toBe(7)
+  })
+
+  it('applies each optional filter in isolation', async () => {
+    const filtersToTest = [
+      { projectId: 'p1' },
+      { status: 'open' },
+      { status: 'open,in_analysis' },
+      { type: 'question' },
+      { priority: 'high' },
+      { assignedTo: 'u2' },
+      { createdBy: 'u1' },
+      { search: 'teste' },
+      { finishedAfter: '2026-07-18T00:00:00.000Z' },
+    ]
+
+    for (const filters of filtersToTest) {
+      const countChain = createChain([{ total: 1 }])
+      vi.mocked(db.select).mockReturnValueOnce(countChain as never)
+
+      const result = await countTicketsForExport(filters, { userId: 'u-admin', userRole: 'super_admin' })
+      expect(result).toBe(1)
+    }
+  })
+})
+
+// ─── listTicketsForExport ───────────────────────────────────────────
+
+describe('listTicketsForExport', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  const exportRow = {
+    id: 't1', code: 'PRJ-001', title: 'Teste export', status: 'open', priority: 'high',
+    type: 'question', projectName: 'Projeto Alpha', clientName: 'Acme Corp',
+    assignedTo: 'u2', createdByName: 'João', createdAt: new Date('2026-01-01T10:00:00Z'),
+    dueDate: '2026-02-01',
+  }
+
+  it('returns [] for client without userClientId', async () => {
+    const result = await listTicketsForExport({}, { userId: 'u1', userRole: 'client' })
+    expect(result).toEqual([])
+    expect(db.select).not.toHaveBeenCalled()
+  })
+
+  it('returns [] for client with no projects', async () => {
+    const clientProjectsChain = createChain([])
+    vi.mocked(db.select).mockReturnValueOnce(clientProjectsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u1', userRole: 'client', userClientId: 'c1' })
+    expect(result).toEqual([])
+  })
+
+  it('returns [] for gestor/consultor with no allocations', async () => {
+    const allocationsChain = createChain([])
+    vi.mocked(db.select).mockReturnValueOnce(allocationsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u1', userRole: 'gestor' })
+    expect(result).toEqual([])
+  })
+
+  it('lists tickets for super_admin without scope restriction', async () => {
+    const dataChain = createChain([exportRow])
+    const assigneesChain = createChain([{ id: 'u2', name: 'Maria' }])
+    const commentsChain = createChain([])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(dataChain as never)     // main data query
+      .mockReturnValueOnce(assigneesChain as never) // assignee names
+      .mockReturnValueOnce(commentsChain as never)  // last comments
+
+    const result = await listTicketsForExport({}, { userId: 'u-admin', userRole: 'super_admin' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].code).toBe('PRJ-001')
+    expect(result[0].assignedToName).toBe('Maria')
+    expect(result[0].lastComment).toBeNull()
+  })
+
+  it('lists tickets for gestor with allocations', async () => {
+    const allocationsChain = createChain([{ projectId: 'p1' }])
+    const dataChain = createChain([{ ...exportRow, assignedTo: null }])
+    const commentsChain = createChain([])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(allocationsChain as never)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(commentsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u1', userRole: 'gestor' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].assignedToName).toBeNull()
+  })
+
+  it('lists tickets for client scoped to their projects', async () => {
+    const clientProjectsChain = createChain([{ id: 'p1' }])
+    const dataChain = createChain([{ ...exportRow, assignedTo: null }])
+    const commentsChain = createChain([])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(clientProjectsChain as never)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(commentsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u1', userRole: 'client', userClientId: 'c1' })
+
+    expect(result).toHaveLength(1)
+  })
+
+  it('applies sort/order combinations', async () => {
+    const sortsToTest: Array<{ sort?: string; order?: 'asc' | 'desc' }> = [
+      { sort: 'priority', order: 'asc' },
+      { sort: 'status' },
+      { sort: 'updated_at' },
+      {},
+    ]
+
+    for (const filters of sortsToTest) {
+      const dataChain = createChain([])
+      vi.mocked(db.select).mockReturnValueOnce(dataChain as never)
+
+      const result = await listTicketsForExport(filters, { userId: 'u-admin', userRole: 'super_admin' })
+      expect(result).toEqual([])
+    }
+  })
+
+  it('merges last non-internal comment, ignoring internal ones and picking the most recent', async () => {
+    const dataChain = createChain([exportRow])
+    const assigneesChain = createChain([{ id: 'u2', name: 'Maria' }])
+    // Ordenado por createdAt desc: o primeiro para cada ticketId é o mais recente.
+    const commentsChain = createChain([
+      { ticketId: 't1', authorName: 'Cliente', content: 'Comentário mais recente' },
+      { ticketId: 't1', authorName: 'Consultor', content: 'Comentário mais antigo' },
+    ])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(assigneesChain as never)
+      .mockReturnValueOnce(commentsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u-admin', userRole: 'super_admin' })
+
+    expect(result[0].lastComment).toEqual({ authorName: 'Cliente', content: 'Comentário mais recente' })
+  })
+
+  it('sets lastComment to null when ticket has no non-internal comments', async () => {
+    const dataChain = createChain([exportRow])
+    const assigneesChain = createChain([{ id: 'u2', name: 'Maria' }])
+    const commentsChain = createChain([])
+    vi.mocked(db.select)
+      .mockReturnValueOnce(dataChain as never)
+      .mockReturnValueOnce(assigneesChain as never)
+      .mockReturnValueOnce(commentsChain as never)
+
+    const result = await listTicketsForExport({}, { userId: 'u-admin', userRole: 'super_admin' })
+
+    expect(result[0].lastComment).toBeNull()
   })
 })

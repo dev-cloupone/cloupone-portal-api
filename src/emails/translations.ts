@@ -113,6 +113,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'ticketStatus.awaiting_third_party': 'Aguardando Terceiro',
     'ticketStatus.finished': 'Finalizado',
 
+    // Ticket priority labels
+    'ticketPriority.low': 'Baixa',
+    'ticketPriority.medium': 'Média',
+    'ticketPriority.high': 'Alta',
+    'ticketPriority.critical': 'Crítica',
+
     // Notification (in-app)
     'notification.ticketCreated.title': 'Novo ticket criado',
     'notification.ticketCreated.body': '{{code}} — "{{title}}" foi criado por {{createdBy}} no projeto {{projectName}}.',
@@ -233,6 +239,12 @@ const translations: Record<Locale, Record<string, string>> = {
     'ticketStatus.awaiting_third_party': 'Awaiting Third Party',
     'ticketStatus.finished': 'Finished',
 
+    // Ticket priority labels
+    'ticketPriority.low': 'Low',
+    'ticketPriority.medium': 'Medium',
+    'ticketPriority.high': 'High',
+    'ticketPriority.critical': 'Critical',
+
     // Notification (in-app)
     'notification.ticketCreated.title': 'New ticket created',
     'notification.ticketCreated.body': '{{code}} — "{{title}}" was created by {{createdBy}} in project {{projectName}}.',
@@ -260,6 +272,11 @@ export function getStatusLabel(locale: Locale, status: string): string {
 export function getTypeLabel(locale: Locale, type: string): string {
   const key = `ticketType.${type}`;
   return translations[locale]?.[key] ?? translations['pt-BR'][key] ?? type;
+}
+
+export function getPriorityLabel(locale: Locale, priority: string): string {
+  const key = `ticketPriority.${priority}`;
+  return translations[locale]?.[key] ?? translations['pt-BR'][key] ?? priority;
 }
 
 export function toLocale(value: string | null | undefined): Locale {

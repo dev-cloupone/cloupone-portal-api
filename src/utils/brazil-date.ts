@@ -1,4 +1,4 @@
-const BRAZIL_TZ = 'America/Sao_Paulo';
+export const BRAZIL_TZ = 'America/Sao_Paulo';
 
 /** Data de hoje no fuso de Brasilia, formato YYYY-MM-DD. */
 export function todayInBrazil(): string {

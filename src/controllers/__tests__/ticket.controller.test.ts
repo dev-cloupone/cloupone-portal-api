@@ -14,14 +14,24 @@ vi.mock('../../services/ticket.service', () => ({
   listAttachments: vi.fn(),
   removeAttachment: vi.fn(),
   listTicketTimeEntries: vi.fn(),
+  countTicketsForExport: vi.fn(),
+  listTicketsForExport: vi.fn(),
+  MAX_EXPORT_TICKETS: 5000,
 }))
 
 vi.mock('../../services/user.service', () => ({
   getUserClientId: vi.fn(),
+  getUserLocale: vi.fn(),
+}))
+
+vi.mock('../../services/ticket-export.service', () => ({
+  buildTicketExportWorkbook: vi.fn(),
+  buildExportFilename: vi.fn(),
 }))
 
 import * as ticketService from '../../services/ticket.service'
-import { getUserClientId } from '../../services/user.service'
+import { getUserClientId, getUserLocale } from '../../services/user.service'
+import { buildTicketExportWorkbook, buildExportFilename } from '../../services/ticket-export.service'
 import { ticketController } from '../ticket.controller'
 
 function createMocks(overrides: {
@@ -43,6 +53,7 @@ function createMocks(overrides: {
     json: vi.fn().mockReturnThis(),
     status: vi.fn().mockReturnThis(),
     send: vi.fn().mockReturnThis(),
+    setHeader: vi.fn().mockReturnThis(),
   } as unknown as Response
 
   const next = vi.fn() as unknown as NextFunction
@@ -227,6 +238,105 @@ describe('ticketController', () => {
         }),
       )
       expect(res.json).toHaveBeenCalledWith(stats)
+    })
+  })
+
+  describe('exportTickets', () => {
+    it('rejects invalid filters with a ZodError', async () => {
+      const { req, res, next } = createMocks({
+        query: { priority: 'not-a-priority' },
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await ticketController.exportTickets(req, res, next)
+
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ name: 'ZodError' }))
+      expect(res.send).not.toHaveBeenCalled()
+    })
+
+    it('rejects with 404 TICKET_EXPORT_NO_RESULTS when no tickets match', async () => {
+      vi.mocked(getUserClientId).mockResolvedValue(undefined)
+      vi.mocked(ticketService.countTicketsForExport).mockResolvedValue(0)
+
+      const { req, res, next } = createMocks({
+        query: {},
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await ticketController.exportTickets(req, res, next)
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 404, code: 'TICKET_EXPORT_NO_RESULTS' }),
+      )
+      expect(res.send).not.toHaveBeenCalled()
+    })
+
+    it('rejects with 422 TICKET_EXPORT_LIMIT_EXCEEDED when over MAX_EXPORT_TICKETS', async () => {
+      vi.mocked(getUserClientId).mockResolvedValue(undefined)
+      vi.mocked(ticketService.countTicketsForExport).mockResolvedValue(5001)
+
+      const { req, res, next } = createMocks({
+        query: {},
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await ticketController.exportTickets(req, res, next)
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 422, code: 'TICKET_EXPORT_LIMIT_EXCEEDED' }),
+      )
+      expect(res.send).not.toHaveBeenCalled()
+    })
+
+    it('sends the workbook buffer with the correct headers on success', async () => {
+      const rows = [{ projectName: 'Projeto Alpha' }]
+      const buffer = Buffer.from('fake-xlsx')
+      vi.mocked(getUserClientId).mockResolvedValue(undefined)
+      vi.mocked(ticketService.countTicketsForExport).mockResolvedValue(1)
+      vi.mocked(ticketService.listTicketsForExport).mockResolvedValue(rows as never)
+      vi.mocked(getUserLocale).mockResolvedValue('pt-BR')
+      vi.mocked(buildTicketExportWorkbook).mockReturnValue(buffer)
+      vi.mocked(buildExportFilename).mockReturnValue('tickets-2026-03-05-1130.xlsx')
+
+      const { req, res, next } = createMocks({
+        query: { projectId: '550e8400-e29b-41d4-a716-446655440000' },
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await ticketController.exportTickets(req, res, next)
+
+      expect(buildTicketExportWorkbook).toHaveBeenCalledWith(rows, 'pt-BR')
+      expect(buildExportFilename).toHaveBeenCalledWith('Projeto Alpha')
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', 'attachment; filename="tickets-2026-03-05-1130.xlsx"')
+      expect(res.send).toHaveBeenCalledWith(buffer)
+      expect(next).not.toHaveBeenCalled()
+    })
+
+    it('does not resolve a project name for the filename when projectId filter is not set', async () => {
+      const rows = [{ projectName: 'Projeto Alpha' }]
+      const buffer = Buffer.from('fake-xlsx')
+      vi.mocked(getUserClientId).mockResolvedValue(undefined)
+      vi.mocked(ticketService.countTicketsForExport).mockResolvedValue(1)
+      vi.mocked(ticketService.listTicketsForExport).mockResolvedValue(rows as never)
+      vi.mocked(getUserLocale).mockResolvedValue('pt-BR')
+      vi.mocked(buildTicketExportWorkbook).mockReturnValue(buffer)
+      vi.mocked(buildExportFilename).mockReturnValue('tickets-2026-03-05-1130.xlsx')
+
+      const { req, res, next } = createMocks({
+        query: {},
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await ticketController.exportTickets(req, res, next)
+
+      expect(buildExportFilename).toHaveBeenCalledWith(undefined)
+      expect(res.send).toHaveBeenCalledWith(buffer)
     })
   })
 
