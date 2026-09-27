@@ -1,0 +1,39 @@
+name: Weekly Timesheet Reminder
+
+on:
+  schedule:
+    - cron: '0 12 * * 1' # toda segunda, 9h BRT (12h UTC)
+  workflow_dispatch: # permite rodar manualmente
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run reminder script
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EMAIL_PROVIDER: mailgun
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+        run: npx tsx src/scripts/weekly-timesheet-reminder.ts
+      - name: Notify on failure
+        if: failure()
+        env:
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: |
+          curl -s --user "api:$MAILGUN_API_KEY" \
+            "https://api.mailgun.net/v3/$MAILGUN_DOMAIN/messages" \
+            -F from="Cloupone Jobs <noreply@$MAILGUN_DOMAIN>" \
+            -F to="$ALERT_EMAIL" \
+            -F subject="[ALERTA] Falha no lembrete semanal de horas - $(date +%Y-%m-%d)" \
+            -F text="O job de lembrete semanal falhou. Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

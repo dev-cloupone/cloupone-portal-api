@@ -46,6 +46,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'passwordChanged.timestamp': 'Data/hora da alteração:',
     'passwordChanged.warning': 'Se você não realizou esta alteração, entre em contato com o suporte imediatamente.',
 
+    // Weekly Timesheet Reminder
+    'weeklyTimesheetReminder.subject': 'Cloup One | Lembrete de apontamento de horas',
+    'weeklyTimesheetReminder.heading': 'Apontamento de horas pendente',
+    'weeklyTimesheetReminder.greeting': 'Olá, <strong>{{name}}</strong>! Notamos que você não registrou horas na semana de <strong>{{weekStart}}</strong> a <strong>{{weekEnd}}</strong>.',
+    'weeklyTimesheetReminder.greetingText': 'Notamos que você não registrou horas na semana de {{weekStart}} a {{weekEnd}}.',
+    'weeklyTimesheetReminder.projectsLabel': 'Projetos ativos em que você está alocado(a):',
+    'weeklyTimesheetReminder.button': 'Apontar Horas',
+
     // Ticket Created
     'ticketCreated.subject': 'Cloup One | [{{code}}] Novo ticket: {{title}}',
     'ticketCreated.heading': 'Novo Ticket Criado',
@@ -171,6 +179,14 @@ const translations: Record<Locale, Record<string, string>> = {
     'passwordChanged.greetingText': 'Your password on {{appName}} was changed successfully at {{timestamp}}.',
     'passwordChanged.timestamp': 'Date/time of change:',
     'passwordChanged.warning': 'If you did not make this change, contact support immediately.',
+
+    // Weekly Timesheet Reminder
+    'weeklyTimesheetReminder.subject': 'Cloup One | Timesheet Reminder',
+    'weeklyTimesheetReminder.heading': 'Pending Timesheet Entry',
+    'weeklyTimesheetReminder.greeting': 'Hi <strong>{{name}}</strong>! We noticed you haven\'t logged any hours for the week of <strong>{{weekStart}}</strong> to <strong>{{weekEnd}}</strong>.',
+    'weeklyTimesheetReminder.greetingText': 'We noticed you haven\'t logged any hours for the week of {{weekStart}} to {{weekEnd}}.',
+    'weeklyTimesheetReminder.projectsLabel': 'Active projects you are allocated to:',
+    'weeklyTimesheetReminder.button': 'Log Hours',
 
     // Ticket Created
     'ticketCreated.subject': 'Cloup One | [{{code}}] New ticket: {{title}}',
