@@ -24,6 +24,12 @@ jobs:
       - run: npm ci
 
       - run: npm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/template_base
+          JWT_SECRET: your-jwt-secret-min-32-chars-long-here
+          JWT_REFRESH_SECRET: your-refresh-secret-min-32-chars-long
+          ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+          FRONTEND_URL: http://localhost:5173
 
   deploy:
     needs: test
