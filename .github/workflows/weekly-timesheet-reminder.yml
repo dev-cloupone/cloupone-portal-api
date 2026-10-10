@@ -2,7 +2,7 @@ name: Weekly Timesheet Reminder
 
 on:
   schedule:
-    - cron: '0 12 * * 1' # toda segunda, 9h BRT (12h UTC)
+    - cron: '13 12 * * 1' # toda segunda, ~9h BRT (12h13 UTC; minuto não-redondo reduz atraso de fila do GitHub)
   workflow_dispatch: # permite rodar manualmente
 
 jobs:
@@ -23,6 +23,10 @@ jobs:
           MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          # Exigidos pelo envSchema mas não usados por este script — valores fixos, sem necessidade de secret real
+          JWT_SECRET: 'unused-in-reminder-script-min-32-chars'
+          JWT_REFRESH_SECRET: 'unused-in-reminder-script-min-32-chars'
+          ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
         run: npx tsx src/scripts/weekly-timesheet-reminder.ts
       - name: Notify on failure
         if: failure()

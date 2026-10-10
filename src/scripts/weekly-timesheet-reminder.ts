@@ -65,7 +65,7 @@ async function main() {
     .innerJoin(users, and(
       eq(users.id, projectAllocations.userId),
       eq(users.isActive, true),
-      inArray(users.role, ['consultor', 'gestor']),
+      inArray(users.role, ['consultor', 'gestor', 'super_admin']),
     ));
 
   const recipients = groupByUser(allocationRows);

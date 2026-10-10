@@ -947,8 +947,9 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never       // project+client
-      if (selectCall === 2) return createChain(installments) as never    // installments
-      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
+      if (selectCall === 2) return createChain([]) as never              // existing draft check (none)
+      if (selectCall === 3) return createChain(installments) as never    // installments
+      if (selectCall === 4) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
     const invoiceChain = createChain([invoice])
@@ -1005,12 +1006,50 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never
-      if (selectCall === 2) return createChain(installments) as never
+      if (selectCall === 2) return createChain([]) as never // existing draft check (none)
+      if (selectCall === 3) return createChain(installments) as never
       return createChain([]) as never
     })
 
     await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
       .rejects.toThrow('pendentes')
+  })
+
+  it('rejeita se draft ativa ja existe para projeto/mes (INVOICE_EXISTS, 409)', async () => {
+    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: null, billingType: 'fixed_price' }
+
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([project]) as never
+      return createChain([{ id: 'inv-draft' }]) as never // existing draft found
+    })
+
+    await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
+      .rejects.toMatchObject({ status: 409, code: 'INVOICE_EXISTS' })
+    expect(db.insert).not.toHaveBeenCalled()
+  })
+
+  it('trata constraint violation 23505 ao criar fatura', async () => {
+    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: null, billingType: 'fixed_price', fixedPriceTotal: '50000.00' }
+    const installments = [
+      { id: 'inst1', projectId: 'p1', installmentNumber: 1, description: 'Parcela 1', amount: '5000.00', status: 'pending' },
+    ]
+
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([project]) as never
+      if (selectCall === 2) return createChain([]) as never // existing draft check (none, race condition)
+      if (selectCall === 3) return createChain(installments) as never
+      return createChain([]) as never
+    })
+
+    const error23505 = Object.assign(new Error('unique'), { code: '23505' })
+    vi.mocked(db.insert).mockImplementationOnce(() => { throw error23505 })
+
+    await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
+      .rejects.toMatchObject({ status: 409, code: 'INVOICE_EXISTS' })
   })
 
   it('rejeita projeto nao encontrado', async () => {
@@ -1033,8 +1072,9 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never       // project+client
-      if (selectCall === 2) return createChain(installments) as never    // installments
-      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
+      if (selectCall === 2) return createChain([]) as never              // existing draft check (none)
+      if (selectCall === 3) return createChain(installments) as never    // installments
+      if (selectCall === 4) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
 
