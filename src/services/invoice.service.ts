@@ -400,6 +400,18 @@ export async function generateFromInstallments(
       throw appError(MSG.NOT_FIXED_PRICE, 400);
     }
 
+    // Check no draft invoice exists for project/month
+    const [existingDraft] = await tx.select({ id: invoices.id })
+      .from(invoices)
+      .where(and(
+        eq(invoices.projectId, projectId),
+        eq(invoices.year, year),
+        eq(invoices.month, month),
+        eq(invoices.status, 'draft'),
+      )).limit(1);
+
+    if (existingDraft) throw appError(MSG.INVOICE_EXISTS, 409);
+
     // Fetch installments
     const installments = await tx.select()
       .from(projectInstallments)
@@ -418,19 +430,27 @@ export async function generateFromInstallments(
     }
 
     // Create invoice (fixed_price: billing = same month, not next)
-    const [invoice] = await tx.insert(invoices).values({
-      clientId: project.clientId,
-      projectId,
-      year,
-      month,
-      billingYear: year,
-      billingMonth: month,
-      status: 'draft',
-      invoiceType: 'fixed_price',
-      clientName: project.clientName,
-      clientCnpj: project.clientCnpj,
-      createdBy,
-    }).returning();
+    let invoice;
+    try {
+      [invoice] = await tx.insert(invoices).values({
+        clientId: project.clientId,
+        projectId,
+        year,
+        month,
+        billingYear: year,
+        billingMonth: month,
+        status: 'draft',
+        invoiceType: 'fixed_price',
+        clientName: project.clientName,
+        clientCnpj: project.clientCnpj,
+        createdBy,
+      }).returning();
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw appError(MSG.INVOICE_EXISTS, 409);
+      }
+      throw err;
+    }
 
     // Buscar total de parcelas do projeto (todas, nao so as selecionadas)
     const [{ total: totalInstallments }] = await tx
