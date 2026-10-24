@@ -307,6 +307,14 @@
       "tag": "0042_timesheet_project_lock",
       "breakpoints": true,
       "dialect": "postgresql"
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1781596800000,
+      "tag": "0043_fixed_price_multiple_drafts",
+      "breakpoints": true,
+      "dialect": "postgresql"
     }
   ]
 }
