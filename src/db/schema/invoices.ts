@@ -34,6 +34,9 @@ export const invoices = pgTable('invoices', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [
+  // Also exists: unique partial index "invoices_project_month_draft_hourly" (project_id, year, month)
+  // WHERE status = 'draft' AND invoice_type = 'hourly', created manually in migration 0043 — not
+  // represented here. Do not let `drizzle-kit generate` drop it.
   index('invoices_client_idx').on(table.clientId),
   index('invoices_project_idx').on(table.projectId),
   index('invoices_status_idx').on(table.status),

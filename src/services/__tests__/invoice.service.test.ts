@@ -16,6 +16,7 @@ vi.mock('../../db/schema', () => ({
   invoices: {
     id: 'id', invoiceNumber: 'invoiceNumber', clientId: 'clientId', projectId: 'projectId',
     year: 'year', month: 'month', billingYear: 'billingYear', billingMonth: 'billingMonth', status: 'status',
+    invoiceType: 'invoiceType',
     totalHours: 'totalHours', totalAmount: 'totalAmount',
     clientName: 'clientName', clientCnpj: 'clientCnpj',
     issuedAt: 'issuedAt', issuedBy: 'issuedBy',
@@ -293,6 +294,23 @@ describe('regenerateInvoiceDraftsForConsultant', () => {
 
     await regenerateInvoiceDraftsForConsultant('u1', 2024, 6, 'admin1')
     expect(db.transaction).toHaveBeenCalledTimes(3)
+  })
+
+  it('busca draft existente filtrando por invoiceType hourly (nao reusa draft fixed_price do mesmo projeto/mes)', async () => {
+    vi.mocked(db.selectDistinct).mockReturnValue(createChain([{ projectId: 'p1' }]) as never)
+
+    const draftLookupChain = createChain([])
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ billingType: 'hourly' }]) as never // billingType check
+      if (selectCall === 2) return draftLookupChain as never // draft lookup — must filter by invoiceType
+      return createChain([]) as never // no project found -> early return, no insert
+    })
+
+    await regenerateInvoiceDraftsForConsultant('u1', 2024, 6, 'admin1')
+
+    expect(draftLookupChain.where).toHaveBeenCalledWith(expect.arrayContaining([{ type: 'eq', val: 'hourly' }]))
   })
 })
 
@@ -718,7 +736,7 @@ describe('revertToDraft', () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', projectId: 'p1', year: 2024, month: 6 }]) as never
+      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', invoiceType: 'hourly', projectId: 'p1', year: 2024, month: 6 }]) as never
       return createChain([]) as never // no existing draft
     })
     vi.mocked(db.update).mockReturnValue(
@@ -733,7 +751,7 @@ describe('revertToDraft', () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', projectId: 'p1', year: 2024, month: 6 }]) as never
+      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', invoiceType: 'hourly', projectId: 'p1', year: 2024, month: 6 }]) as never
       return createChain([]) as never
     })
     vi.mocked(db.update).mockReturnValue(
@@ -748,7 +766,7 @@ describe('revertToDraft', () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', projectId: 'p1', year: 2024, month: 6 }]) as never
+      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', invoiceType: 'hourly', projectId: 'p1', year: 2024, month: 6 }]) as never
       return createChain([{ id: 'inv-draft' }]) as never // existing draft
     })
 
@@ -760,7 +778,7 @@ describe('revertToDraft', () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', projectId: 'p1', year: 2024, month: 6 }]) as never
+      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', invoiceType: 'hourly', projectId: 'p1', year: 2024, month: 6 }]) as never
       return createChain([]) as never
     })
 
@@ -769,6 +787,38 @@ describe('revertToDraft', () => {
 
     await expect(revertToDraft('inv1'))
       .rejects.toMatchObject({ status: 409 })
+  })
+
+  it('fixed_price: nao verifica draft existente, sucesso mesmo com outra draft do mesmo projeto/mes', async () => {
+    vi.mocked(db.select).mockReturnValue(
+      createChain([{ id: 'inv1', status: 'issued', invoiceType: 'fixed_price', projectId: 'p1', year: 2024, month: 6 }]) as never
+    )
+    vi.mocked(db.update).mockReturnValue(
+      createChain([{ id: 'inv1', status: 'draft', invoiceNumber: null }]) as never
+    )
+
+    const result = await revertToDraft('inv1')
+    expect(result).toMatchObject({ status: 'draft', invoiceNumber: null })
+    expect(db.select).toHaveBeenCalledTimes(1)
+  })
+
+  it('hourly: verifica draft existente filtrando por invoiceType (nao bloqueia por draft de outro tipo)', async () => {
+    const draftCheckChain = createChain([])
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'inv1', status: 'issued', invoiceType: 'hourly', projectId: 'p1', year: 2024, month: 6 }]) as never
+      return draftCheckChain as never // no existing hourly draft (fixed_price draft for same project/month, if any, must not match)
+    })
+    vi.mocked(db.update).mockReturnValue(
+      createChain([{ id: 'inv1', status: 'draft', invoiceNumber: null }]) as never
+    )
+
+    const result = await revertToDraft('inv1')
+
+    expect(result).toMatchObject({ status: 'draft' })
+    // the draft-exists query must filter by invoiceType = 'hourly', not just projectId/year/month/status
+    expect(draftCheckChain.where).toHaveBeenCalledWith(expect.arrayContaining([{ type: 'eq', val: 'hourly' }]))
   })
 })
 
@@ -947,9 +997,8 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never       // project+client
-      if (selectCall === 2) return createChain([]) as never              // existing draft check (none)
-      if (selectCall === 3) return createChain(installments) as never    // installments
-      if (selectCall === 4) return createChain([{ total: 10 }]) as never // total installments count
+      if (selectCall === 2) return createChain(installments) as never    // installments
+      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
     const invoiceChain = createChain([invoice])
@@ -1006,8 +1055,7 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never
-      if (selectCall === 2) return createChain([]) as never // existing draft check (none)
-      if (selectCall === 3) return createChain(installments) as never
+      if (selectCall === 2) return createChain(installments) as never
       return createChain([]) as never
     })
 
@@ -1015,41 +1063,32 @@ describe('generateFromInstallments', () => {
       .rejects.toThrow('pendentes')
   })
 
-  it('rejeita se draft ativa ja existe para projeto/mes (INVOICE_EXISTS, 409)', async () => {
-    const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: null, billingType: 'fixed_price' }
-
-    let selectCall = 0
-    vi.mocked(db.select).mockImplementation(() => {
-      selectCall++
-      if (selectCall === 1) return createChain([project]) as never
-      return createChain([{ id: 'inv-draft' }]) as never // existing draft found
-    })
-
-    await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
-      .rejects.toMatchObject({ status: 409, code: 'INVOICE_EXISTS' })
-    expect(db.insert).not.toHaveBeenCalled()
-  })
-
-  it('trata constraint violation 23505 ao criar fatura', async () => {
+  it('permite gerar uma segunda draft para o mesmo projeto/mes (fixed_price)', async () => {
     const project = { id: 'p1', clientId: 'c1', clientName: 'Acme Corp', clientCnpj: null, billingType: 'fixed_price', fixedPriceTotal: '50000.00' }
     const installments = [
-      { id: 'inst1', projectId: 'p1', installmentNumber: 1, description: 'Parcela 1', amount: '5000.00', status: 'pending' },
+      { id: 'inst2', projectId: 'p1', installmentNumber: 2, description: 'Parcela 2', amount: '5000.00', status: 'pending' },
     ]
+    const invoice = { id: 'inv2', status: 'draft', invoiceType: 'fixed_price' }
+    const line = { id: 'line2' }
+    const updatedInvoice = { ...invoice, totalHours: '0', totalAmount: '5000.00' }
 
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
-      if (selectCall === 1) return createChain([project]) as never
-      if (selectCall === 2) return createChain([]) as never // existing draft check (none, race condition)
-      if (selectCall === 3) return createChain(installments) as never
+      if (selectCall === 1) return createChain([project]) as never       // project+client
+      if (selectCall === 2) return createChain(installments) as never    // installments
+      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
+    vi.mocked(db.insert)
+      .mockReturnValueOnce(createChain([invoice]) as never)
+      .mockReturnValueOnce(createChain([line]) as never)
+    vi.mocked(db.update).mockReturnValue(createChain([updatedInvoice]) as never)
 
-    const error23505 = Object.assign(new Error('unique'), { code: '23505' })
-    vi.mocked(db.insert).mockImplementationOnce(() => { throw error23505 })
+    const result = await generateFromInstallments('p1', ['inst2'], 2024, 6, 'admin1')
 
-    await expect(generateFromInstallments('p1', ['inst1'], 2024, 6, 'admin1'))
-      .rejects.toMatchObject({ status: 409, code: 'INVOICE_EXISTS' })
+    expect(result).toMatchObject({ id: 'inv2', status: 'draft', invoiceType: 'fixed_price' })
+    expect(db.select).toHaveBeenCalledTimes(3)
   })
 
   it('rejeita projeto nao encontrado', async () => {
@@ -1072,9 +1111,8 @@ describe('generateFromInstallments', () => {
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
       if (selectCall === 1) return createChain([project]) as never       // project+client
-      if (selectCall === 2) return createChain([]) as never              // existing draft check (none)
-      if (selectCall === 3) return createChain(installments) as never    // installments
-      if (selectCall === 4) return createChain([{ total: 10 }]) as never // total installments count
+      if (selectCall === 2) return createChain(installments) as never    // installments
+      if (selectCall === 3) return createChain([{ total: 10 }]) as never // total installments count
       return createChain([]) as never
     })
 

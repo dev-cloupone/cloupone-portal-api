@@ -1,4 +1,4 @@
-import { eq, and, ne, sql, count as drizzleCount, desc } from 'drizzle-orm';
+import { eq, and, sql, count as drizzleCount, desc } from 'drizzle-orm';
 import { db } from '../db';
 import {
   invoices,
@@ -50,6 +50,26 @@ const MSG = {
   INSTALLMENTS_NOT_IN_PROJECT: { message: 'Uma ou mais parcelas não pertencem a este projeto.', code: 'INVOICE_INSTALLMENTS_NOT_IN_PROJECT' },
   INSTALLMENTS_NOT_PENDING: { message: 'Todas as parcelas selecionadas devem estar pendentes.', code: 'INVOICE_INSTALLMENTS_NOT_PENDING' },
 } as const;
+
+async function assertNoExistingHourlyDraft(
+  tx: DbTransaction,
+  projectId: string,
+  year: number,
+  month: number,
+  errorMsg: typeof MSG[keyof typeof MSG],
+) {
+  const [existingDraft] = await tx.select({ id: invoices.id })
+    .from(invoices)
+    .where(and(
+      eq(invoices.projectId, projectId),
+      eq(invoices.year, year),
+      eq(invoices.month, month),
+      eq(invoices.status, 'draft'),
+      eq(invoices.invoiceType, 'hourly'),
+    )).limit(1);
+
+  if (existingDraft) throw appError(errorMsg, 409);
+}
 
 async function recalculateInvoiceTotals(tx: DbTransaction, invoiceId: string) {
   const allLines = await tx.select({
@@ -197,16 +217,7 @@ export async function generateDraft(projectId: string, year: number, month: numb
     }
 
     // Check no draft invoice exists for project/month
-    const [existingDraft] = await tx.select({ id: invoices.id })
-      .from(invoices)
-      .where(and(
-        eq(invoices.projectId, projectId),
-        eq(invoices.year, year),
-        eq(invoices.month, month),
-        eq(invoices.status, 'draft'),
-      )).limit(1);
-
-    if (existingDraft) throw appError(MSG.INVOICE_EXISTS, 409);
+    await assertNoExistingHourlyDraft(tx, projectId, year, month, MSG.INVOICE_EXISTS);
 
     // Get time entries grouped by consultant
     const firstDay = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -323,18 +334,19 @@ export async function regenerateInvoiceDraftsForConsultant(userId: string, year:
 
 async function regenerateInvoiceDraftForProject(projectId: string, consultantId: string, year: number, month: number, triggeredBy: string) {
   await db.transaction(async (tx) => {
-    // Find non-cancelled invoice for project+month
-    const existingInvoices = await tx.select()
+    // Find existing hourly draft for project+month (this function only handles hourly invoices;
+    // fixed_price invoices can have multiple simultaneous drafts and are handled elsewhere)
+    const [draftInvoice] = await tx.select()
       .from(invoices)
       .where(and(
         eq(invoices.projectId, projectId),
         eq(invoices.year, year),
         eq(invoices.month, month),
-        ne(invoices.status, 'cancelled'),
-      ));
+        eq(invoices.status, 'draft'),
+        eq(invoices.invoiceType, 'hourly'),
+      ))
+      .limit(1);
 
-    // Check if a draft already exists
-    const draftInvoice = existingInvoices.find(i => i.status === 'draft');
     if (draftInvoice) {
       await addOrUpdateConsultantLine(tx, draftInvoice.id, consultantId, projectId, year, month);
       await recalculateInvoiceTotals(tx, draftInvoice.id);
@@ -400,25 +412,14 @@ export async function generateFromInstallments(
       throw appError(MSG.NOT_FIXED_PRICE, 400);
     }
 
-    // Check no draft invoice exists for project/month
-    const [existingDraft] = await tx.select({ id: invoices.id })
-      .from(invoices)
-      .where(and(
-        eq(invoices.projectId, projectId),
-        eq(invoices.year, year),
-        eq(invoices.month, month),
-        eq(invoices.status, 'draft'),
-      )).limit(1);
-
-    if (existingDraft) throw appError(MSG.INVOICE_EXISTS, 409);
-
-    // Fetch installments
+    // Fetch and lock installments (prevents two concurrent calls from double-booking the same installment)
     const installments = await tx.select()
       .from(projectInstallments)
       .where(and(
         eq(projectInstallments.projectId, projectId),
         sql`${projectInstallments.id} IN (${sql.join(installmentIds.map(id => sql`${id}`), sql`, `)})`,
-      ));
+      ))
+      .for('update');
 
     if (installments.length !== installmentIds.length) {
       throw appError(MSG.INSTALLMENTS_NOT_IN_PROJECT, 400);
@@ -430,27 +431,19 @@ export async function generateFromInstallments(
     }
 
     // Create invoice (fixed_price: billing = same month, not next)
-    let invoice;
-    try {
-      [invoice] = await tx.insert(invoices).values({
-        clientId: project.clientId,
-        projectId,
-        year,
-        month,
-        billingYear: year,
-        billingMonth: month,
-        status: 'draft',
-        invoiceType: 'fixed_price',
-        clientName: project.clientName,
-        clientCnpj: project.clientCnpj,
-        createdBy,
-      }).returning();
-    } catch (err: any) {
-      if (err?.code === '23505') {
-        throw appError(MSG.INVOICE_EXISTS, 409);
-      }
-      throw err;
-    }
+    const [invoice] = await tx.insert(invoices).values({
+      clientId: project.clientId,
+      projectId,
+      year,
+      month,
+      billingYear: year,
+      billingMonth: month,
+      status: 'draft',
+      invoiceType: 'fixed_price',
+      clientName: project.clientName,
+      clientCnpj: project.clientCnpj,
+      createdBy,
+    }).returning();
 
     // Buscar total de parcelas do projeto (todas, nao so as selecionadas)
     const [{ total: totalInstallments }] = await tx
@@ -705,18 +698,11 @@ export async function revertToDraft(invoiceId: string) {
     if (!invoice) throw appError(MSG.NOT_FOUND, 404);
     if (invoice.status !== 'issued') throw appError(MSG.NOT_ISSUED_REVERT, 400);
 
-    // Check if a draft already exists for same project/year/month
-    const [existingDraft] = await tx.select({ id: invoices.id })
-      .from(invoices)
-      .where(and(
-        eq(invoices.projectId, invoice.projectId),
-        eq(invoices.year, invoice.year),
-        eq(invoices.month, invoice.month),
-        eq(invoices.status, 'draft'),
-      ))
-      .limit(1);
-
-    if (existingDraft) throw appError(MSG.DRAFT_EXISTS_REVERT, 409);
+    // Check if an hourly draft already exists for same project/year/month
+    // (fixed_price allows multiple simultaneous drafts, so this check only applies to hourly)
+    if (invoice.invoiceType === 'hourly') {
+      await assertNoExistingHourlyDraft(tx, invoice.projectId, invoice.year, invoice.month, MSG.DRAFT_EXISTS_REVERT);
+    }
 
     try {
       const [updated] = await tx.update(invoices).set({
@@ -736,6 +722,8 @@ export async function revertToDraft(invoiceId: string) {
 
       return updated;
     } catch (err: any) {
+      // 23505 here can only come from the hourly-only partial index (invoices_project_month_draft_hourly);
+      // unreachable for fixed_price today, kept as defense-in-depth for the hourly path and any future constraint.
       if (err?.code === '23505') {
         throw appError(MSG.DRAFT_EXISTS_REVERT, 409);
       }
