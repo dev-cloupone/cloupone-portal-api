@@ -1,6 +1,6 @@
-import { eq, and, isNotNull, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { projects, projectAllocations } from '../db/schema';
+import { projects } from '../db/schema';
 import { appError } from '../utils/app-error';
 import { todayInBrazil, addDays, toBrDate } from '../utils/brazil-date';
 
@@ -39,39 +39,6 @@ export async function isProjectLockedForDate(
     earliestAllowed,
     reason: `Apontamentos bloqueados para datas anteriores a ${toBrDate(earliestAllowed)}. Contate o administrador do sistema.`,
   };
-}
-
-export async function getLockStatusForUser(userId: string, month: string) {
-  const rows = await db
-    .select({
-      projectId: projects.id,
-      projectName: projects.name,
-      lockDays: projects.timesheetLockDays,
-    })
-    .from(projectAllocations)
-    .innerJoin(projects, eq(projectAllocations.projectId, projects.id))
-    .where(and(
-      eq(projectAllocations.userId, userId),
-      isNotNull(projects.timesheetLockDays),
-      ne(projects.status, 'finished'),
-    ));
-
-  if (rows.length === 0) return { lockedProjects: [] };
-
-  const today = todayInBrazil();
-  const monthStart = `${month}-01`;
-
-  const lockedProjects: Array<{ projectId: string; projectName: string; earliestAllowed: string }> = [];
-
-  for (const r of rows) {
-    const earliestAllowed = addDays(today, -r.lockDays!);
-    // so relevante se a janela retroativa alcanca dias do mes visualizado
-    if (earliestAllowed > monthStart) {
-      lockedProjects.push({ projectId: r.projectId, projectName: r.projectName, earliestAllowed });
-    }
-  }
-
-  return { lockedProjects };
 }
 
 export async function getLockConfig(projectId: string) {

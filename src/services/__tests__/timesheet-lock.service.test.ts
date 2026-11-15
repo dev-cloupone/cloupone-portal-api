@@ -2,17 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
-  and: vi.fn((...args: unknown[]) => args),
-  isNotNull: vi.fn((col: unknown) => ({ type: 'isNotNull', col })),
-  ne: vi.fn((_col: unknown, val: unknown) => ({ type: 'ne', val })),
 }))
 
 vi.mock('../../db/schema', () => ({
   projects: {
     id: 'id', name: 'name', status: 'status', timesheetLockDays: 'timesheetLockDays',
-  },
-  projectAllocations: {
-    id: 'id', projectId: 'projectId', userId: 'userId',
   },
 }))
 
@@ -25,11 +19,9 @@ vi.mock('../../db', () => ({
 
 import { createChain } from '../../__test-utils__/drizzle-chain'
 import {
-  isProjectLockedForDate, getLockConfig, setLockDays, getLockStatusForUser,
+  isProjectLockedForDate, getLockConfig, setLockDays,
 } from '../timesheet-lock.service'
 import { db } from '../../db'
-import { ne } from 'drizzle-orm'
-import { projects } from '../../db/schema'
 import { AppError } from '../../utils/app-error'
 
 describe('isProjectLockedForDate', () => {
@@ -151,58 +143,5 @@ describe('setLockDays', () => {
     vi.mocked(db.update).mockReturnValue(createChain([]) as never)
 
     await expect(setLockDays('proj-1', 5)).rejects.toMatchObject({ status: 404 })
-  })
-})
-
-describe('getLockStatusForUser', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.useFakeTimers()
-  })
-  afterEach(() => vi.useRealTimers())
-
-  it('retorna lista vazia quando o consultor nao tem projeto com prazo', async () => {
-    vi.mocked(db.select).mockReturnValue(createChain([]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result).toEqual({ lockedProjects: [] })
-  })
-
-  it('classifica projeto como bloqueado quando a janela retroativa alcanca o mes totalmente anterior', async () => {
-    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
-    vi.mocked(db.select).mockReturnValue(createChain([
-      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
-    ]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-01') // mes totalmente anterior a janela
-    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', earliestAllowed: '2026-02-05' }] })
-  })
-
-  it('classifica projeto como bloqueado quando a janela retroativa cobre parte do mes visualizado', async () => {
-    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
-    vi.mocked(db.select).mockReturnValue(createChain([
-      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
-    ]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-02') // mes parcialmente coberto (01 a 04 bloqueados)
-    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', earliestAllowed: '2026-02-05' }] })
-  })
-
-  it('nao lista projeto quando o mes visualizado esta totalmente dentro da janela permitida', async () => {
-    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
-    vi.mocked(db.select).mockReturnValue(createChain([
-      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
-    ]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-03') // mes futuro, totalmente apos a minima permitida
-    expect(result).toEqual({ lockedProjects: [] })
-  })
-
-  it('ignora projetos finalizados', async () => {
-    vi.mocked(db.select).mockReturnValue(createChain([]) as never)
-
-    await getLockStatusForUser('u1', '2026-01')
-
-    expect(ne).toHaveBeenCalledWith(projects.status, 'finished')
   })
 })

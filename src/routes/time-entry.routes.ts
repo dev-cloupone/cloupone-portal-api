@@ -21,7 +21,6 @@ router.post('/import/confirm', timeEntryImportController.confirm);
 
 // Consultor endpoints (any authenticated user with entries)
 router.get('/month', timeEntryController.getMonthEntries);
-router.get('/lock-status', timeEntryController.getLockStatus);
 router.get('/week', timeEntryController.getWeekEntries);
 router.get('/list', timeEntryController.listView);
 router.post('/', timeEntryController.upsert);
