@@ -688,6 +688,8 @@ export async function listForView(params: ListViewParams, userId: string, userRo
     ? await db.select({
         ...baseColumns,
         adjustedHours: timeEntries.adjustedHours,
+        billingRate: sql<string>`COALESCE(${projectAllocations.billingRate}, '0.00')`,
+        costRate: sql<string>`COALESCE(${projectAllocations.costRate}, '0.00')`,
         partnerBillingRate: sql<string>`COALESCE(${projectAllocations.partnerBillingRate}, '0.00')`,
         partnerCostRate: sql<string>`COALESCE(${projectAllocations.partnerCostRate}, '0.00')`,
       })

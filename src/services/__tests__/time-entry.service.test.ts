@@ -17,7 +17,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../../db/schema', () => ({
   timeEntries: { id: 'id', userId: 'userId', projectId: 'projectId', date: 'date', startTime: 'startTime', endTime: 'endTime', hours: 'hours', adjustedHours: 'adjustedHours', description: 'description', ticketId: 'ticketId', subphaseId: 'subphaseId', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   projects: { id: 'id', name: 'name', clientId: 'clientId' },
-  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', partnerBillingRate: 'partnerBillingRate', partnerCostRate: 'partnerCostRate' },
+  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', billingRate: 'billingRate', costRate: 'costRate', partnerBillingRate: 'partnerBillingRate', partnerCostRate: 'partnerCostRate' },
   users: { id: 'id', name: 'name' },
   clients: { id: 'id', companyName: 'companyName' },
   tickets: { id: 'id', code: 'code', title: 'title', projectId: 'projectId' },
@@ -749,18 +749,20 @@ describe('updateAdjustedHours', () => {
 describe('listForView', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('seleciona adjustedHours/partnerBillingRate/partnerCostRate para super_admin', async () => {
+  it('seleciona adjustedHours/billingRate/costRate/partnerBillingRate/partnerCostRate para super_admin', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ id: 'e1', hours: '3.00' }]) as never)
 
     await listForView({ month: '2024-06', all: true }, 'admin1', 'super_admin')
 
     const selectArg = vi.mocked(db.select).mock.calls[0][0] as Record<string, unknown>
     expect(selectArg).toHaveProperty('adjustedHours')
+    expect(selectArg).toHaveProperty('billingRate')
+    expect(selectArg).toHaveProperty('costRate')
     expect(selectArg).toHaveProperty('partnerBillingRate')
     expect(selectArg).toHaveProperty('partnerCostRate')
   })
 
-  it('omite adjustedHours/partnerBillingRate/partnerCostRate para gestor', async () => {
+  it('omite adjustedHours/billingRate/costRate/partnerBillingRate/partnerCostRate para gestor', async () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
@@ -772,17 +774,21 @@ describe('listForView', () => {
 
     const selectArg = vi.mocked(db.select).mock.calls[1][0] as Record<string, unknown>
     expect(selectArg).not.toHaveProperty('adjustedHours')
+    expect(selectArg).not.toHaveProperty('billingRate')
+    expect(selectArg).not.toHaveProperty('costRate')
     expect(selectArg).not.toHaveProperty('partnerBillingRate')
     expect(selectArg).not.toHaveProperty('partnerCostRate')
   })
 
-  it('omite adjustedHours/partnerBillingRate/partnerCostRate para consultor', async () => {
+  it('omite adjustedHours/billingRate/costRate/partnerBillingRate/partnerCostRate para consultor', async () => {
     vi.mocked(db.select).mockReturnValue(createChain([{ id: 'e1', hours: '3.00' }]) as never)
 
     await listForView({ month: '2024-06' }, 'u1', 'consultor')
 
     const selectArg = vi.mocked(db.select).mock.calls[0][0] as Record<string, unknown>
     expect(selectArg).not.toHaveProperty('adjustedHours')
+    expect(selectArg).not.toHaveProperty('billingRate')
+    expect(selectArg).not.toHaveProperty('costRate')
     expect(selectArg).not.toHaveProperty('partnerBillingRate')
     expect(selectArg).not.toHaveProperty('partnerCostRate')
   })
