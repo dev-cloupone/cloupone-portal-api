@@ -49,7 +49,7 @@ const { mockIsProjectLockedForDate } = vi.hoisted(() => ({
 vi.mock('../timesheet-lock.service', () => ({
   isProjectLockedForDate: mockIsProjectLockedForDate,
   LOCK_BYPASS_ROLES: ['super_admin', 'administrative'],
-  MSG: { PROJECT_LOCKED: { message: 'Projeto bloqueado para apontamentos deste mês. Contate o administrador do sistema.', code: 'TIME_ENTRY_PROJECT_LOCKED' } },
+  MSG: { PROJECT_LOCKED: { message: 'Projeto bloqueado para apontamentos fora da janela retroativa permitida. Contate o administrador do sistema.', code: 'TIME_ENTRY_PROJECT_LOCKED' } },
 }))
 
 vi.mock('../../db', () => ({

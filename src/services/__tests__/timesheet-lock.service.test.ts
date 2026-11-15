@@ -53,56 +53,62 @@ describe('isProjectLockedForDate', () => {
     expect(result).toEqual({ locked: false })
   })
 
-  it('retorna locked false no ultimo dia do prazo', async () => {
-    vi.setSystemTime(new Date('2026-02-05T15:00:00Z')) // hoje = 05/02 em Brasilia
-    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never) // deadline = 31/01 + 5 = 05/02
+  it('libera a data exatamente no limite da janela (hoje - lockDays)', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02 em Brasilia
+    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never) // minima permitida = 05/02
 
-    const result = await isProjectLockedForDate('proj-1', '2026-01-15')
-    expect(result).toEqual({ locked: false, deadline: '2026-02-05' })
+    const result = await isProjectLockedForDate('proj-1', '2026-02-05')
+    expect(result).toEqual({ locked: false, earliestAllowed: '2026-02-05' })
   })
 
-  it('retorna locked true no dia seguinte ao prazo', async () => {
-    vi.setSystemTime(new Date('2026-02-06T15:00:00Z')) // hoje = 06/02 em Brasilia
-    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never) // deadline = 05/02
+  it('bloqueia a data imediatamente anterior ao limite da janela', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
+    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never)
 
-    const result = await isProjectLockedForDate('proj-1', '2026-01-15')
+    const result = await isProjectLockedForDate('proj-1', '2026-02-04')
     expect(result.locked).toBe(true)
-    expect(result.deadline).toBe('2026-02-05')
+    expect(result.earliestAllowed).toBe('2026-02-05')
+    expect(result.reason).toContain('05/02/2026')
+    expect(result.reason).not.toContain('2026-02-05')
     expect(result.reason).toContain('Contate o administrador')
   })
 
-  it('usa o mes da data do apontamento, nao o mes corrente', async () => {
-    vi.setSystemTime(new Date('2026-03-10T15:00:00Z')) // hoje = 10/03, bem depois do prazo de janeiro
+  it('libera qualquer data futura, independente de lockDays', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z'))
     vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never)
 
-    const result = await isProjectLockedForDate('proj-1', '2026-01-15') // lancamento de janeiro
+    const result = await isProjectLockedForDate('proj-1', '2026-03-01')
+    expect(result).toEqual({ locked: false, earliestAllowed: '2026-02-05' })
+  })
+
+  it('a janela retroativa ignora o mes da data do lancamento (nao e mais fim de mes)', async () => {
+    vi.setSystemTime(new Date('2026-03-10T15:00:00Z')) // hoje = 10/03, minima permitida = 05/03
+    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never)
+
+    const result = await isProjectLockedForDate('proj-1', '2026-01-15') // lancamento de janeiro, bem antes da janela
     expect(result.locked).toBe(true)
-    expect(result.deadline).toBe('2026-02-05')
+    expect(result.earliestAllowed).toBe('2026-03-05')
   })
 
-  it('calcula o prazo sobre fevereiro de ano bissexto', async () => {
-    vi.setSystemTime(new Date('2028-03-05T15:00:00Z')) // hoje = 05/03/2028
-    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never) // 2028 e bissexto: 29/02 + 5 = 05/03
+  it('calcula a janela corretamente atravessando fevereiro de ano bissexto', async () => {
+    vi.setSystemTime(new Date('2028-03-02T15:00:00Z')) // hoje = 02/03/2028
+    vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 5 }]) as never) // 2028 e bissexto: 02/03 - 5 = 26/02
 
-    const result = await isProjectLockedForDate('proj-1', '2028-02-15')
-    expect(result).toEqual({ locked: false, deadline: '2028-03-05' })
+    const result = await isProjectLockedForDate('proj-1', '2028-02-26')
+    expect(result).toEqual({ locked: false, earliestAllowed: '2028-02-26' })
   })
 
-  it('retorna locked false com lockDays zero no ultimo dia do mes', async () => {
+  it('com lockDays zero, apenas hoje fica liberado', async () => {
     vi.setSystemTime(new Date('2026-01-31T15:00:00Z')) // hoje = 31/01
+
     vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 0 }]) as never)
+    const today = await isProjectLockedForDate('proj-1', '2026-01-31')
+    expect(today).toEqual({ locked: false, earliestAllowed: '2026-01-31' })
 
-    const result = await isProjectLockedForDate('proj-1', '2026-01-15')
-    expect(result).toEqual({ locked: false, deadline: '2026-01-31' })
-  })
-
-  it('retorna locked true com lockDays zero no dia 1 do mes seguinte', async () => {
-    vi.setSystemTime(new Date('2026-02-01T15:00:00Z')) // hoje = 01/02
     vi.mocked(db.select).mockReturnValue(createChain([{ lockDays: 0 }]) as never)
-
-    const result = await isProjectLockedForDate('proj-1', '2026-01-15')
-    expect(result.locked).toBe(true)
-    expect(result.deadline).toBe('2026-01-31')
+    const yesterday = await isProjectLockedForDate('proj-1', '2026-01-30')
+    expect(yesterday.locked).toBe(true)
+    expect(yesterday.earliestAllowed).toBe('2026-01-31')
   })
 })
 
@@ -162,23 +168,33 @@ describe('getLockStatusForUser', () => {
     expect(result).toEqual({ lockedProjects: [] })
   })
 
-  it('classifica projeto vencido como bloqueado', async () => {
-    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, bem depois do prazo
-    vi.mocked(db.select).mockReturnValue(createChain([
-      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 }, // deadline = 05/02
-    ]) as never)
-
-    const result = await getLockStatusForUser('u1', '2026-01')
-    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', deadline: '2026-02-05' }] })
-  })
-
-  it('nao lista projeto ainda dentro do prazo', async () => {
-    vi.setSystemTime(new Date('2026-02-01T15:00:00Z')) // hoje = 01/02, deadline 05/02
+  it('classifica projeto como bloqueado quando a janela retroativa alcanca o mes totalmente anterior', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
     vi.mocked(db.select).mockReturnValue(createChain([
       { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
     ]) as never)
 
-    const result = await getLockStatusForUser('u1', '2026-01')
+    const result = await getLockStatusForUser('u1', '2026-01') // mes totalmente anterior a janela
+    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', earliestAllowed: '2026-02-05' }] })
+  })
+
+  it('classifica projeto como bloqueado quando a janela retroativa cobre parte do mes visualizado', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
+    vi.mocked(db.select).mockReturnValue(createChain([
+      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
+    ]) as never)
+
+    const result = await getLockStatusForUser('u1', '2026-02') // mes parcialmente coberto (01 a 04 bloqueados)
+    expect(result).toEqual({ lockedProjects: [{ projectId: 'p1', projectName: 'Projeto A', earliestAllowed: '2026-02-05' }] })
+  })
+
+  it('nao lista projeto quando o mes visualizado esta totalmente dentro da janela permitida', async () => {
+    vi.setSystemTime(new Date('2026-02-10T15:00:00Z')) // hoje = 10/02, minima permitida = 05/02
+    vi.mocked(db.select).mockReturnValue(createChain([
+      { projectId: 'p1', projectName: 'Projeto A', lockDays: 5 },
+    ]) as never)
+
+    const result = await getLockStatusForUser('u1', '2026-03') // mes futuro, totalmente apos a minima permitida
     expect(result).toEqual({ lockedProjects: [] })
   })
 
