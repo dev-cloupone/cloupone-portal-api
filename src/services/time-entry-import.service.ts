@@ -8,8 +8,7 @@ import {
 } from '../db/schema';
 import { AppError, appError } from '../utils/app-error';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
-import { isProjectLockedForDate, LOCK_BYPASS_ROLES } from './timesheet-lock.service';
-import { yearMonthOf } from '../utils/brazil-date';
+import { isProjectLockedForDate, LOCK_BYPASS_ROLES, MSG as LOCK_MSG } from './timesheet-lock.service';
 
 const MSG = {
   INVALID_FORMAT: { message: 'Formato inválido. Use .xlsx ou .csv.', code: 'IMPORT_INVALID_FORMAT' },
@@ -343,17 +342,18 @@ export async function validateImport(
   const validEntries: Array<{ date: string; startMin: number; endMin: number }> = [];
 
   const bypassLock = LOCK_BYPASS_ROLES.includes(actorRole);
-  const lockMemo = new Map<string, boolean>();
+  const lockMemo = new Map<string, { locked: boolean; reason?: string; earliestAllowed?: string }>();
 
-  async function isLocked(projectId: string, date: string): Promise<boolean> {
-    if (bypassLock) return false;
-    const { year, month } = yearMonthOf(date);
-    const key = `${projectId}|${year}-${month}`;
+  // Memoizado por projeto+data exata (nao por mes): a janela retroativa pode
+  // bloquear parte de um mes e liberar o restante.
+  async function checkLock(projectId: string, date: string): Promise<{ locked: boolean; reason?: string; earliestAllowed?: string }> {
+    if (bypassLock) return { locked: false };
+    const key = `${projectId}|${date}`;
     const cached = lockMemo.get(key);
-    if (cached !== undefined) return cached;
-    const { locked } = await isProjectLockedForDate(projectId, date);
-    lockMemo.set(key, locked);
-    return locked;
+    if (cached) return cached;
+    const result = await isProjectLockedForDate(projectId, date);
+    lockMemo.set(key, result);
+    return result;
   }
 
   for (let i = 0; i < rows.length; i++) {
@@ -409,13 +409,14 @@ export async function validateImport(
     }
 
     // 5.5 Validar bloqueio por prazo do projeto
-    if (await isLocked(project.id, dateResult.isoDate)) {
+    const lockCheck = await checkLock(project.id, dateResult.isoDate);
+    if (lockCheck.locked) {
       errors++;
       validatedRows.push({
         row: rowNum,
         data: row,
         status: 'error',
-        message: 'Projeto bloqueado para apontamentos deste mês. Contate o administrador do sistema.',
+        message: lockCheck.reason ?? LOCK_MSG.PROJECT_LOCKED.message,
         resolvedIds: null,
       });
       continue;
@@ -585,10 +586,10 @@ export async function confirmImport(
 
       // Revalidate: projeto bloqueado por prazo
       if (!LOCK_BYPASS_ROLES.includes(actorRole)) {
-        const { locked } = await isProjectLockedForDate(row.projectId, row.date);
-        if (locked) {
+        const lockCheck = await isProjectLockedForDate(row.projectId, row.date);
+        if (lockCheck.locked) {
           throw new AppError(
-            `Projeto bloqueado para apontamentos de ${month}/${year}. Importação cancelada.`,
+            `${lockCheck.reason ?? LOCK_MSG.PROJECT_LOCKED.message} Importação cancelada.`,
             400,
             'IMPORT_PROJECT_LOCKED_ABORT',
           );

@@ -10,11 +10,6 @@ export function todayInBrazil(): string {
   }).format(new Date());
 }
 
-/** Ultimo dia do mes (month 1-12), formato YYYY-MM-DD. Ancorado em UTC. */
-export function lastDayOfMonth(year: number, month: number): string {
-  return new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
-}
-
 /** Soma dias corridos a uma data YYYY-MM-DD. Ancorado em UTC. */
 export function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00Z');
@@ -29,8 +24,8 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((b - a) / 86400000);
 }
 
-/** year/month a partir de YYYY-MM-DD, por parsing de string (sem Date, sem fuso). */
-export function yearMonthOf(dateStr: string): { year: number; month: number } {
-  const [year, month] = dateStr.split('-').map(Number);
-  return { year, month };
+/** Formata YYYY-MM-DD para dd/MM/yyyy, por parsing de string (sem Date, sem fuso). */
+export function toBrDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
 }

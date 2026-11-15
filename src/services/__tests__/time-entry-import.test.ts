@@ -43,6 +43,7 @@ const { mockIsProjectLockedForDate } = vi.hoisted(() => ({
 vi.mock('../timesheet-lock.service', () => ({
   isProjectLockedForDate: mockIsProjectLockedForDate,
   LOCK_BYPASS_ROLES: ['super_admin', 'administrative'],
+  MSG: { PROJECT_LOCKED: { message: 'Projeto bloqueado para apontamentos fora da janela retroativa permitida. Contate o administrador do sistema.', code: 'TIME_ENTRY_PROJECT_LOCKED' } },
 }))
 
 const mockTx = {
@@ -368,7 +369,7 @@ describe('validateImport', () => {
     expect(mockIsProjectLockedForDate).not.toHaveBeenCalled()
   })
 
-  it('reutiliza o resultado da trava para linhas do mesmo projeto e mes', async () => {
+  it('reutiliza o resultado da trava para linhas do mesmo projeto e data exata', async () => {
     let selectCall = 0
     vi.mocked(db.select).mockImplementation(() => {
       selectCall++
@@ -379,7 +380,36 @@ describe('validateImport', () => {
       if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // link
       if (selectCall === 5) return createChain([]) as never // no overlap
       if (selectCall === 6) return createChain([]) as never // no duplicate
-      // Row 2 (mesmo projeto e mes)
+      // Row 2 (mesmo projeto e mesma data, horario diferente)
+      if (selectCall === 7) return createChain([{ id: 'p1' }]) as never // project
+      if (selectCall === 8) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 9) return createChain([{ id: 'sc1' }]) as never // link
+      if (selectCall === 10) return createChain([]) as never // no overlap
+      if (selectCall === 11) return createChain([]) as never // no duplicate
+      return createChain([]) as never
+    })
+
+    const rows = [
+      { date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '09:00', endTime: '10:00' },
+      { date: '02/06/2026', project: 'A', phase: 'F', subphase: 'B', startTime: '11:00', endTime: '12:00' },
+    ]
+    const result = await validateImport(rows, 'u1', 'u1', 'consultor')
+    expect(result.valid).toBe(2)
+    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('consulta a trava novamente para datas diferentes do mesmo mes (janela retroativa pode dividir o mes)', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      // Row 1
+      if (selectCall === 2) return createChain([{ id: 'p1' }]) as never // project
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never // link
+      if (selectCall === 5) return createChain([]) as never // no overlap
+      if (selectCall === 6) return createChain([]) as never // no duplicate
+      // Row 2 (mesmo projeto, data diferente dentro do mesmo mes)
       if (selectCall === 7) return createChain([{ id: 'p1' }]) as never // project
       if (selectCall === 8) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never // subphase
       if (selectCall === 9) return createChain([{ id: 'sc1' }]) as never // link
@@ -394,7 +424,7 @@ describe('validateImport', () => {
     ]
     const result = await validateImport(rows, 'u1', 'u1', 'consultor')
     expect(result.valid).toBe(2)
-    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(1)
+    expect(mockIsProjectLockedForDate).toHaveBeenCalledTimes(2)
   })
 })
 

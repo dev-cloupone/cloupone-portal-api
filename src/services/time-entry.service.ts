@@ -281,7 +281,9 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
   const bypassLock = timesheetLockService.LOCK_BYPASS_ROLES.includes(data.userRole ?? '');
   if (!bypassLock) {
     const check = await timesheetLockService.isProjectLockedForDate(data.projectId, data.date);
-    if (check.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+    if (check.locked) {
+      throw appError({ message: check.reason ?? MSG.PROJECT_LOCKED.message, code: MSG.PROJECT_LOCKED.code }, 400);
+    }
   }
 
   // 5. Validate ticket belongs to project (if provided)
@@ -345,7 +347,9 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     // 7.5 A entrada ORIGINAL tambem precisa estar liberada
     if (!bypassLock && (existing.date !== data.date || existing.projectId !== data.projectId)) {
       const orig = await timesheetLockService.isProjectLockedForDate(existing.projectId, existing.date);
-      if (orig.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+      if (orig.locked) {
+        throw appError({ message: orig.reason ?? MSG.PROJECT_LOCKED.message, code: MSG.PROJECT_LOCKED.code }, 400);
+      }
     }
 
     // 8. Validate overlap (excluding self)
@@ -403,7 +407,9 @@ export async function deleteTimeEntry(id: string, userId: string, userRole?: str
   // Validar bloqueio por prazo do projeto
   if (!timesheetLockService.LOCK_BYPASS_ROLES.includes(userRole ?? '')) {
     const check = await timesheetLockService.isProjectLockedForDate(entry.projectId, entry.date);
-    if (check.locked) throw appError(MSG.PROJECT_LOCKED, 400);
+    if (check.locked) {
+      throw appError({ message: check.reason ?? MSG.PROJECT_LOCKED.message, code: MSG.PROJECT_LOCKED.code }, 400);
+    }
   }
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));

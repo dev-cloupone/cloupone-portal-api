@@ -1,7 +1,6 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import * as timeEntryService from '../services/time-entry.service';
-import * as timesheetLockService from '../services/timesheet-lock.service';
 import { paginationSchema } from '../utils/pagination';
 import { V } from '../utils/validation-messages';
 
@@ -115,13 +114,6 @@ const listView: RequestHandler = async (req, res, next) => {
   }
 };
 
-const getLockStatus: RequestHandler = async (req, res, next) => {
-  try {
-    const month = z.string().regex(monthRegex, 'Formato inválido. Use YYYY-MM').parse(req.query.month);
-    res.json(await timesheetLockService.getLockStatusForUser(req.userId!, month));
-  } catch (err) { next(err); }
-};
-
 export const timeEntryController = {
   getMonthEntries,
   getWeekEntries,
@@ -129,5 +121,4 @@ export const timeEntryController = {
   remove,
   list,
   listView,
-  getLockStatus,
 };

@@ -10,12 +10,7 @@ vi.mock('../../services/time-entry.service', () => ({
   listForView: vi.fn(),
 }))
 
-vi.mock('../../services/timesheet-lock.service', () => ({
-  getLockStatusForUser: vi.fn(),
-}))
-
 import * as timeEntryService from '../../services/time-entry.service'
-import * as timesheetLockService from '../../services/timesheet-lock.service'
 import { timeEntryController } from '../time-entry.controller'
 
 function createMocks(overrides: {
@@ -252,33 +247,4 @@ describe('timeEntryController', () => {
     })
   })
 
-  describe('getLockStatus', () => {
-    it('rejeita lock-status com month em formato invalido', async () => {
-      const { req, res, next } = createMocks({
-        query: { month: 'invalid' },
-        userId: 'user-1',
-      })
-
-      await timeEntryController.getLockStatus(req, res, next)
-
-      expect(next).toHaveBeenCalled()
-      expect(timesheetLockService.getLockStatusForUser).not.toHaveBeenCalled()
-    })
-
-    it('passa userId e month para getLockStatusForUser', async () => {
-      const status = { lockedProjects: [] }
-      vi.mocked(timesheetLockService.getLockStatusForUser).mockResolvedValue(status as never)
-
-      const { req, res, next } = createMocks({
-        query: { month: '2026-01' },
-        userId: 'user-1',
-      })
-
-      await timeEntryController.getLockStatus(req, res, next)
-
-      expect(timesheetLockService.getLockStatusForUser).toHaveBeenCalledWith('user-1', '2026-01')
-      expect(res.json).toHaveBeenCalledWith(status)
-      expect(next).not.toHaveBeenCalled()
-    })
-  })
 })
