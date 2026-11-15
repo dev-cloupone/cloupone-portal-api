@@ -478,6 +478,48 @@ describe('confirmImport', () => {
     expect(db.insert).toHaveBeenCalled() // import log
   })
 
+  it('grava adjustedHours = hours para cada linha importada', async () => {
+    let mainSelectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      mainSelectCall++
+      if (mainSelectCall === 1) return createChain([]) as never // no duplicate
+      if (mainSelectCall === 2) return createChain([{ allowOverlappingEntries: false }]) as never // profile
+      return createChain([]) as never
+    })
+
+    const insertChain = createChain([{ id: 'new' }])
+    vi.mocked(db.transaction).mockImplementation(async (fn) => {
+      const tx = {
+        select: vi.fn(),
+        insert: vi.fn().mockReturnValue(insertChain as never),
+      }
+      let txSelectCall = 0
+      tx.select.mockImplementation(() => {
+        txSelectCall++
+        if (txSelectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+        if (txSelectCall === 2) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+        if (txSelectCall === 3) return createChain([{ id: 'sc1' }]) as never
+        if (txSelectCall === 4) return createChain([]) as never // no overlap
+        return createChain([]) as never
+      })
+      return fn(tx as never)
+    })
+    vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
+
+    await confirmImport({
+      consultantId: 'u1',
+      rows: [{
+        date: '2026-06-02', startTime: '09:00', endTime: '18:00',
+        projectId: 'p1', subphaseId: 'sp1', ticketId: null, description: 'test',
+      }],
+      includeDuplicates: false,
+    }, 'u1', 'consultor', 'test.xlsx')
+
+    const valuesCall = insertChain.values.mock.calls[0][0]
+    expect(valuesCall.adjustedHours).toBe(valuesCall.hours)
+    expect(valuesCall.hours).toBe('9.00')
+  })
+
   it('rolls back if validation fails inside transaction', async () => {
     let mainSelectCall = 0
     vi.mocked(db.select).mockImplementation(() => {

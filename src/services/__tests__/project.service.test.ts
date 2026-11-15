@@ -17,7 +17,7 @@ vi.mock('../../db/schema', () => ({
     isActive: 'isActive', createdAt: 'createdAt', updatedAt: 'updatedAt',
   },
   clients: { id: 'id', companyName: 'companyName' },
-  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', costRate: 'costRate', billingRate: 'billingRate', createdAt: 'createdAt', updatedAt: 'updatedAt' },
+  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', costRate: 'costRate', billingRate: 'billingRate', partnerBillingRate: 'partnerBillingRate', partnerCostRate: 'partnerCostRate', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   users: { id: 'id', name: 'name', email: 'email' },
   consultantProfiles: { userId: 'userId', hourlyRate: 'hourlyRate' },
   projectNotificationSettings: { projectId: 'projectId', userId: 'userId', eventType: 'eventType' },
@@ -44,6 +44,7 @@ vi.mock('../../db', () => ({
 import {
   listProjects, createProject, updateProject,
   deactivateProject, addAllocation, removeAllocation,
+  updateAllocationRates,
 } from '../project.service'
 import { db } from '../../db'
 
@@ -178,6 +179,37 @@ describe('addAllocation', () => {
     vi.mocked(db.insert).mockReturnValue(createChain([]) as never)
 
     await expect(addAllocation('p1', 'u1')).rejects.toMatchObject({ status: 409 })
+  })
+})
+
+describe('updateAllocationRates', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('persiste os 4 campos de taxa, incluindo os 2 campos PN', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([{ id: 'a1' }]) as never)
+    const updated = {
+      id: 'a1', costRate: '100.00', billingRate: '150.00',
+      partnerBillingRate: '200.00', partnerCostRate: '120.00',
+    }
+    const updateChain = createChain([updated])
+    vi.mocked(db.update).mockReturnValue(updateChain as never)
+
+    const result = await updateAllocationRates('p1', 'u1', {
+      costRate: '100.00', billingRate: '150.00', partnerBillingRate: '200.00', partnerCostRate: '120.00',
+    })
+
+    expect(result).toEqual(updated)
+    expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({
+      costRate: '100.00', billingRate: '150.00', partnerBillingRate: '200.00', partnerCostRate: '120.00',
+    }))
+  })
+
+  it('throws 404 when allocation not found', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([]) as never)
+
+    await expect(updateAllocationRates('p1', 'u-none', {
+      costRate: '100.00', billingRate: '150.00', partnerBillingRate: '0.00', partnerCostRate: '0.00',
+    })).rejects.toMatchObject({ status: 404 })
   })
 })
 

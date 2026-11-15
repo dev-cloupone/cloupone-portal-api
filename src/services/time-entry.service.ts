@@ -2,6 +2,7 @@ import { eq, and, between, count as drizzleCount, desc, asc, sql, gte, lte, inAr
 import { db } from '../db';
 import { timeEntries, projects, projectAllocations, users, clients, tickets, consultantProfiles, monthlyTimesheets, projectSubphases, projectPhases, subphaseConsultants } from '../db/schema';
 import { appError } from '../utils/app-error';
+import { MIDDLEWARE } from '../utils/error-messages';
 import type { PaginationParams } from '../types/pagination.types';
 import { buildMeta } from '../utils/pagination';
 import * as monthlyTimesheetService from './monthly-timesheet.service';
@@ -386,6 +387,7 @@ export async function upsertTimeEntry(data: UpsertEntryInput) {
     startTime,
     endTime,
     hours,
+    adjustedHours: hours,
     description: data.description ?? null,
     ticketId: data.ticketId ?? null,
     subphaseId: data.subphaseId ?? null,
@@ -413,6 +415,18 @@ export async function deleteTimeEntry(id: string, userId: string, userRole?: str
   }
 
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
+}
+
+export async function updateAdjustedHours(entryId: string, value: string, actorRole: string) {
+  if (actorRole !== 'super_admin') throw appError(MIDDLEWARE.INSUFFICIENT_PERMISSIONS, 403);
+
+  const [updated] = await db.update(timeEntries)
+    .set({ adjustedHours: value, updatedAt: new Date() })
+    .where(eq(timeEntries.id, entryId))
+    .returning();
+
+  if (!updated) throw appError(MSG.NOT_FOUND, 404);
+  return updated;
 }
 
 export async function listSubphaseTimeEntries(
@@ -651,7 +665,7 @@ export async function listForView(params: ListViewParams, userId: string, userRo
   if (subphaseId) conditions.push(eq(timeEntries.subphaseId, subphaseId));
   if (ticketId) conditions.push(eq(timeEntries.ticketId, ticketId));
 
-  const entries = await db.select({
+  const baseColumns = {
     id: timeEntries.id,
     date: timeEntries.date,
     startTime: timeEntries.startTime,
@@ -668,15 +682,38 @@ export async function listForView(params: ListViewParams, userId: string, userRo
     ticketId: tickets.id,
     ticketCode: tickets.code,
     ticketTitle: tickets.title,
-  })
-    .from(timeEntries)
-    .innerJoin(users, eq(timeEntries.userId, users.id))
-    .innerJoin(projects, eq(timeEntries.projectId, projects.id))
-    .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
-    .leftJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
-    .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
-    .where(and(...conditions))
-    .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
+  };
+
+  const entries = userRole === 'super_admin'
+    ? await db.select({
+        ...baseColumns,
+        adjustedHours: timeEntries.adjustedHours,
+        billingRate: sql<string>`COALESCE(${projectAllocations.billingRate}, '0.00')`,
+        costRate: sql<string>`COALESCE(${projectAllocations.costRate}, '0.00')`,
+        partnerBillingRate: sql<string>`COALESCE(${projectAllocations.partnerBillingRate}, '0.00')`,
+        partnerCostRate: sql<string>`COALESCE(${projectAllocations.partnerCostRate}, '0.00')`,
+      })
+        .from(timeEntries)
+        .innerJoin(users, eq(timeEntries.userId, users.id))
+        .innerJoin(projects, eq(timeEntries.projectId, projects.id))
+        .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
+        .leftJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
+        .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
+        .leftJoin(projectAllocations, and(
+          eq(projectAllocations.projectId, timeEntries.projectId),
+          eq(projectAllocations.userId, timeEntries.userId),
+        ))
+        .where(and(...conditions))
+        .orderBy(asc(timeEntries.date), asc(timeEntries.startTime))
+    : await db.select(baseColumns)
+        .from(timeEntries)
+        .innerJoin(users, eq(timeEntries.userId, users.id))
+        .innerJoin(projects, eq(timeEntries.projectId, projects.id))
+        .leftJoin(projectSubphases, eq(timeEntries.subphaseId, projectSubphases.id))
+        .leftJoin(projectPhases, eq(projectSubphases.phaseId, projectPhases.id))
+        .leftJoin(tickets, eq(timeEntries.ticketId, tickets.id))
+        .where(and(...conditions))
+        .orderBy(asc(timeEntries.date), asc(timeEntries.startTime));
 
   const totalHours = entries.reduce((sum, e) => sum + Number(e.hours), 0).toFixed(2);
 

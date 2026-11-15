@@ -8,6 +8,8 @@ export const projectAllocations = pgTable('project_allocations', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   costRate: decimal('cost_rate', { precision: 10, scale: 2 }).notNull().default('0.00'),
   billingRate: decimal('billing_rate', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  partnerBillingRate: decimal('partner_billing_rate', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  partnerCostRate: decimal('partner_cost_rate', { precision: 10, scale: 2 }).notNull().default('0.00'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [

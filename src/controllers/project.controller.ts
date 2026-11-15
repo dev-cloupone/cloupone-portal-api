@@ -105,7 +105,7 @@ const listAllocations: RequestHandler = async (req, res, next) => {
 
     const filtered = req.userRole === 'super_admin'
       ? data
-      : data.map(({ costRate, billingRate, ...rest }) => rest);
+      : data.map(({ costRate, billingRate, partnerBillingRate, partnerCostRate, ...rest }) => rest);
 
     res.json({ data: filtered });
   } catch (err) {
@@ -142,6 +142,8 @@ const removeAllocation: RequestHandler = async (req, res, next) => {
 const updateAllocationRatesSchema = z.object({
   costRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
   billingRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  partnerBillingRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  partnerCostRate: z.string().regex(/^\d+(\.\d{1,2})?$/),
 });
 
 const updateAllocationRates: RequestHandler = async (req, res, next) => {

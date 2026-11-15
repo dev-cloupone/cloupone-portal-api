@@ -12,6 +12,7 @@ export const timeEntries = pgTable('time_entries', {
   startTime: time('start_time').notNull(),
   endTime: time('end_time').notNull(),
   hours: decimal('hours', { precision: 4, scale: 2 }).notNull(),
+  adjustedHours: decimal('adjusted_hours', { precision: 4, scale: 2 }).notNull(),
   description: text('description'),
   ticketId: uuid('ticket_id').references(() => tickets.id, { onDelete: 'set null' }),
   subphaseId: uuid('subphase_id').references(() => projectSubphases.id, { onDelete: 'set null' }),

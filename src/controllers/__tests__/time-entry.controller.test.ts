@@ -8,6 +8,7 @@ vi.mock('../../services/time-entry.service', () => ({
   deleteTimeEntry: vi.fn(),
   listTimeEntries: vi.fn(),
   listForView: vi.fn(),
+  updateAdjustedHours: vi.fn(),
 }))
 
 import * as timeEntryService from '../../services/time-entry.service'
@@ -217,6 +218,63 @@ describe('timeEntryController', () => {
       await timeEntryController.listView(req, res, next)
 
       expect(res.status).toHaveBeenCalledWith(400)
+    })
+  })
+
+  describe('updateAdjustedHours', () => {
+    const validId = '550e8400-e29b-41d4-a716-446655440000'
+
+    it('delegates to timeEntryService.updateAdjustedHours', async () => {
+      const entry = { id: validId, adjustedHours: '5.00' }
+      vi.mocked(timeEntryService.updateAdjustedHours).mockResolvedValue(entry as never)
+
+      const { req, res, next } = createMocks({
+        params: { id: validId },
+        body: { adjustedHours: '5.00' },
+        userRole: 'super_admin',
+      })
+
+      await timeEntryController.updateAdjustedHours(req, res, next)
+
+      expect(timeEntryService.updateAdjustedHours).toHaveBeenCalledWith(validId, '5.00', 'super_admin')
+      expect(res.json).toHaveBeenCalledWith(entry)
+      expect(next).not.toHaveBeenCalled()
+    })
+
+    it('calls next on invalid id', async () => {
+      const { req, res, next } = createMocks({
+        params: { id: 'not-a-uuid' },
+        body: { adjustedHours: '5.00' },
+      })
+
+      await timeEntryController.updateAdjustedHours(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(timeEntryService.updateAdjustedHours).not.toHaveBeenCalled()
+    })
+
+    it('calls next when adjustedHours is out of range', async () => {
+      const { req, res, next } = createMocks({
+        params: { id: validId },
+        body: { adjustedHours: '25.00' },
+      })
+
+      await timeEntryController.updateAdjustedHours(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(timeEntryService.updateAdjustedHours).not.toHaveBeenCalled()
+    })
+
+    it('calls next when adjustedHours is zero', async () => {
+      const { req, res, next } = createMocks({
+        params: { id: validId },
+        body: { adjustedHours: '0' },
+      })
+
+      await timeEntryController.updateAdjustedHours(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(timeEntryService.updateAdjustedHours).not.toHaveBeenCalled()
     })
   })
 
