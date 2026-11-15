@@ -670,6 +670,7 @@ export async function confirmImport(
         startTime,
         endTime,
         hours,
+        adjustedHours: hours,
         description: row.description ?? null,
         ticketId: row.ticketId ?? null,
         subphaseId: row.subphaseId,

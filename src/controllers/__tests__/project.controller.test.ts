@@ -10,6 +10,7 @@ vi.mock('../../services/project.service', () => ({
   listAllocations: vi.fn(),
   addAllocation: vi.fn(),
   removeAllocation: vi.fn(),
+  updateAllocationRates: vi.fn(),
 }))
 
 vi.mock('../../utils/project-access', () => ({
@@ -196,6 +197,63 @@ describe('projectController', () => {
 
       expect(projectService.listAllocations).toHaveBeenCalledWith(validId)
       expect(res.json).toHaveBeenCalledWith({ data })
+    })
+
+    it('strips rate fields, including the PN ones, for non-super_admin roles', async () => {
+      const data = [{
+        userId: 'u1', userName: 'User 1',
+        costRate: '100.00', billingRate: '150.00',
+        partnerBillingRate: '200.00', partnerCostRate: '120.00',
+      }]
+      vi.mocked(assertUserHasProjectAccess).mockResolvedValue(undefined)
+      vi.mocked(projectService.listAllocations).mockResolvedValue(data as never)
+
+      const { req, res, next } = createMocks({
+        params: { id: validId },
+        userId: 'user-1',
+        userRole: 'gestor',
+      })
+
+      await projectController.listAllocations(req, res, next)
+
+      expect(res.json).toHaveBeenCalledWith({ data: [{ userId: 'u1', userName: 'User 1' }] })
+    })
+  })
+
+  describe('updateAllocationRates', () => {
+    const validProjectId = '550e8400-e29b-41d4-a716-446655440000'
+    const validUserId = '660e8400-e29b-41d4-a716-446655440000'
+
+    it('delegates to projectService.updateAllocationRates with the 4 rate fields', async () => {
+      const updated = {
+        id: 'a1', costRate: '100.00', billingRate: '150.00',
+        partnerBillingRate: '200.00', partnerCostRate: '120.00',
+      }
+      vi.mocked(projectService.updateAllocationRates).mockResolvedValue(updated as never)
+
+      const { req, res, next } = createMocks({
+        params: { id: validProjectId, userId: validUserId },
+        body: { costRate: '100.00', billingRate: '150.00', partnerBillingRate: '200.00', partnerCostRate: '120.00' },
+      })
+
+      await projectController.updateAllocationRates(req, res, next)
+
+      expect(projectService.updateAllocationRates).toHaveBeenCalledWith(validProjectId, validUserId, {
+        costRate: '100.00', billingRate: '150.00', partnerBillingRate: '200.00', partnerCostRate: '120.00',
+      })
+      expect(res.json).toHaveBeenCalledWith(updated)
+    })
+
+    it('calls next when a PN field is missing from the payload', async () => {
+      const { req, res, next } = createMocks({
+        params: { id: validProjectId, userId: validUserId },
+        body: { costRate: '100.00', billingRate: '150.00' },
+      })
+
+      await projectController.updateAllocationRates(req, res, next)
+
+      expect(next).toHaveBeenCalled()
+      expect(projectService.updateAllocationRates).not.toHaveBeenCalled()
     })
   })
 

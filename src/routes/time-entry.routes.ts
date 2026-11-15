@@ -28,5 +28,6 @@ router.delete('/:id', timeEntryController.remove);
 
 // General listing (for reports)
 router.get('/', authorize('super_admin'), timeEntryController.list);
+router.patch('/:id/adjusted-hours', authorize('super_admin'), timeEntryController.updateAdjustedHours);
 
 export { router as timeEntryRoutes };

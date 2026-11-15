@@ -15,9 +15,9 @@ vi.mock('drizzle-orm', () => ({
 }))
 
 vi.mock('../../db/schema', () => ({
-  timeEntries: { id: 'id', userId: 'userId', projectId: 'projectId', date: 'date', startTime: 'startTime', endTime: 'endTime', hours: 'hours', description: 'description', ticketId: 'ticketId', subphaseId: 'subphaseId', createdAt: 'createdAt', updatedAt: 'updatedAt' },
+  timeEntries: { id: 'id', userId: 'userId', projectId: 'projectId', date: 'date', startTime: 'startTime', endTime: 'endTime', hours: 'hours', adjustedHours: 'adjustedHours', description: 'description', ticketId: 'ticketId', subphaseId: 'subphaseId', createdAt: 'createdAt', updatedAt: 'updatedAt' },
   projects: { id: 'id', name: 'name', clientId: 'clientId' },
-  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId' },
+  projectAllocations: { id: 'id', projectId: 'projectId', userId: 'userId', partnerBillingRate: 'partnerBillingRate', partnerCostRate: 'partnerCostRate' },
   users: { id: 'id', name: 'name' },
   clients: { id: 'id', companyName: 'companyName' },
   tickets: { id: 'id', code: 'code', title: 'title', projectId: 'projectId' },
@@ -64,6 +64,7 @@ vi.mock('../../db', () => ({
 import {
   getMonthEntries, getWeekEntries, upsertTimeEntry, deleteTimeEntry,
   listForView, listTimeEntries, listSubphaseTimeEntries, listPhaseTimeEntries,
+  updateAdjustedHours,
 } from '../time-entry.service'
 import { db } from '../../db'
 
@@ -130,6 +131,55 @@ describe('upsertTimeEntry', () => {
     })
     expect(result).toBeDefined()
     expect(result.id).toBe('new-entry')
+  })
+
+  it('grava adjustedHours = hours na criacao', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 5) return createChain([{ allowOverlappingEntries: false }]) as never
+      return createChain([]) as never
+    })
+    const insertChain = createChain([{ id: 'new-entry' }])
+    vi.mocked(db.insert).mockReturnValue(insertChain as never)
+
+    await upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '08:00', endTime: '09:00',
+      subphaseId: 'sp1',
+    })
+
+    const valuesCall = insertChain.values.mock.calls[0][0]
+    expect(valuesCall.adjustedHours).toBe(valuesCall.hours)
+    expect(valuesCall.hours).toBe('1.00')
+  })
+
+  it('edicao nao altera adjustedHours (nao esta presente no set)', async () => {
+    let selectCall = 0
+    const existing = { id: 'e1', userId: 'u1', projectId: 'p1', date: '2024-06-10' }
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ id: 'alloc1' }]) as never
+      if (selectCall === 2) return createChain([{ status: 'active' }]) as never
+      if (selectCall === 3) return createChain([{ id: 'sp1', status: 'in_progress' }]) as never
+      if (selectCall === 4) return createChain([{ id: 'sc1' }]) as never
+      if (selectCall === 5) return createChain([existing]) as never
+      if (selectCall === 6) return createChain([{ allowOverlappingEntries: true }]) as never
+      return createChain([]) as never
+    })
+    const updateChain = createChain([{ id: 'e1', hours: '2.00' }])
+    vi.mocked(db.update).mockReturnValue(updateChain as never)
+
+    await upsertTimeEntry({
+      userId: 'u1', projectId: 'p1', date: '2024-06-10', startTime: '08:00', endTime: '10:00',
+      subphaseId: 'sp1', id: 'e1',
+    })
+
+    const setCall = updateChain.set.mock.calls[0][0]
+    expect(setCall).not.toHaveProperty('adjustedHours')
   })
 
   it('throws error when month is approved (closed)', async () => {
@@ -668,8 +718,74 @@ describe('upsertTimeEntry - additional branches', () => {
   })
 })
 
+describe('updateAdjustedHours', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('atualiza adjustedHours quando o ator e super_admin', async () => {
+    const updateChain = createChain([{ id: 'e1', adjustedHours: '5.00' }])
+    vi.mocked(db.update).mockReturnValue(updateChain as never)
+
+    const result = await updateAdjustedHours('e1', '5.00', 'super_admin')
+    expect(result).toEqual({ id: 'e1', adjustedHours: '5.00' })
+    expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({ adjustedHours: '5.00' }))
+  })
+
+  it('rejeita quando o ator nao e super_admin', async () => {
+    await expect(updateAdjustedHours('e1', '5.00', 'gestor'))
+      .rejects.toMatchObject({ status: 403 })
+    await expect(updateAdjustedHours('e1', '5.00', 'consultor'))
+      .rejects.toMatchObject({ status: 403 })
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('retorna 404 quando o apontamento nao existe', async () => {
+    vi.mocked(db.update).mockReturnValue(createChain([]) as never)
+
+    await expect(updateAdjustedHours('e-missing', '5.00', 'super_admin'))
+      .rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe('listForView', () => {
   beforeEach(() => { vi.clearAllMocks() })
+
+  it('seleciona adjustedHours/partnerBillingRate/partnerCostRate para super_admin', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([{ id: 'e1', hours: '3.00' }]) as never)
+
+    await listForView({ month: '2024-06', all: true }, 'admin1', 'super_admin')
+
+    const selectArg = vi.mocked(db.select).mock.calls[0][0] as Record<string, unknown>
+    expect(selectArg).toHaveProperty('adjustedHours')
+    expect(selectArg).toHaveProperty('partnerBillingRate')
+    expect(selectArg).toHaveProperty('partnerCostRate')
+  })
+
+  it('omite adjustedHours/partnerBillingRate/partnerCostRate para gestor', async () => {
+    let selectCall = 0
+    vi.mocked(db.select).mockImplementation(() => {
+      selectCall++
+      if (selectCall === 1) return createChain([{ projectId: 'p1' }]) as never
+      return createChain([{ id: 'e1', hours: '3.00' }]) as never
+    })
+
+    await listForView({ month: '2024-06' }, 'u1', 'gestor')
+
+    const selectArg = vi.mocked(db.select).mock.calls[1][0] as Record<string, unknown>
+    expect(selectArg).not.toHaveProperty('adjustedHours')
+    expect(selectArg).not.toHaveProperty('partnerBillingRate')
+    expect(selectArg).not.toHaveProperty('partnerCostRate')
+  })
+
+  it('omite adjustedHours/partnerBillingRate/partnerCostRate para consultor', async () => {
+    vi.mocked(db.select).mockReturnValue(createChain([{ id: 'e1', hours: '3.00' }]) as never)
+
+    await listForView({ month: '2024-06' }, 'u1', 'consultor')
+
+    const selectArg = vi.mocked(db.select).mock.calls[0][0] as Record<string, unknown>
+    expect(selectArg).not.toHaveProperty('adjustedHours')
+    expect(selectArg).not.toHaveProperty('partnerBillingRate')
+    expect(selectArg).not.toHaveProperty('partnerCostRate')
+  })
 
   it('scopes entries to own user for consultor role', async () => {
     const entries = [{ id: 'e1', hours: '3.00' }]

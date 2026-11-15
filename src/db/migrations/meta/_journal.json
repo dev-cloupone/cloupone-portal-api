@@ -315,6 +315,14 @@
       "tag": "0043_fixed_price_multiple_drafts",
       "breakpoints": true,
       "dialect": "postgresql"
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1781683200000,
+      "tag": "0044_pn_adjusted_hours_rates",
+      "breakpoints": true,
+      "dialect": "postgresql"
     }
   ]
 }

@@ -21,6 +21,12 @@ const upsertEntrySchema = z.object({
 
 const idSchema = z.string().uuid();
 
+const updateAdjustedHoursSchema = z.object({
+  adjustedHours: z.string()
+    .regex(/^\d+(\.\d{1,2})?$/)
+    .refine((v) => Number(v) > 0 && Number(v) <= 24, 'Horas ajustadas devem estar entre 0 e 24'),
+});
+
 const getMonthEntries: RequestHandler = async (req, res, next) => {
   try {
     const date = z.string().regex(monthRegex, 'Formato inválido. Use YYYY-MM').parse(req.query.date);
@@ -114,6 +120,17 @@ const listView: RequestHandler = async (req, res, next) => {
   }
 };
 
+const updateAdjustedHours: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = z.object({ id: idSchema }).parse(req.params);
+    const { adjustedHours } = updateAdjustedHoursSchema.parse(req.body);
+    const result = await timeEntryService.updateAdjustedHours(id, adjustedHours, req.userRole!);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const timeEntryController = {
   getMonthEntries,
   getWeekEntries,
@@ -121,4 +138,5 @@ export const timeEntryController = {
   remove,
   list,
   listView,
+  updateAdjustedHours,
 };

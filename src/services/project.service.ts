@@ -204,6 +204,8 @@ export async function listAllocations(projectId: string) {
     userEmail: users.email,
     costRate: projectAllocations.costRate,
     billingRate: projectAllocations.billingRate,
+    partnerBillingRate: projectAllocations.partnerBillingRate,
+    partnerCostRate: projectAllocations.partnerCostRate,
     createdAt: projectAllocations.createdAt,
   })
     .from(projectAllocations)
@@ -235,7 +237,11 @@ export async function addAllocation(projectId: string, userId: string) {
   return result[0];
 }
 
-export async function updateAllocationRates(projectId: string, userId: string, data: { costRate: string; billingRate: string }) {
+export async function updateAllocationRates(
+  projectId: string,
+  userId: string,
+  data: { costRate: string; billingRate: string; partnerBillingRate: string; partnerCostRate: string },
+) {
   const [existing] = await db.select({ id: projectAllocations.id })
     .from(projectAllocations)
     .where(and(eq(projectAllocations.projectId, projectId), eq(projectAllocations.userId, userId)))
@@ -244,7 +250,13 @@ export async function updateAllocationRates(projectId: string, userId: string, d
   if (!existing) throw appError(PROJECT.ALLOCATION_NOT_FOUND, 404);
 
   const [updated] = await db.update(projectAllocations)
-    .set({ costRate: data.costRate, billingRate: data.billingRate, updatedAt: new Date() })
+    .set({
+      costRate: data.costRate,
+      billingRate: data.billingRate,
+      partnerBillingRate: data.partnerBillingRate,
+      partnerCostRate: data.partnerCostRate,
+      updatedAt: new Date(),
+    })
     .where(eq(projectAllocations.id, existing.id))
     .returning();
 
