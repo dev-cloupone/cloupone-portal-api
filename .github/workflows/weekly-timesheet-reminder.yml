@@ -1,8 +1,8 @@
 name: Weekly Timesheet Reminder
 
 on:
-  schedule:
-    - cron: '13 12 * * 1' # toda segunda, ~9h BRT (12h13 UTC; minuto não-redondo reduz atraso de fila do GitHub)
+  # schedule desativado — job desligado, mas mantido para disparo manual (workflow_dispatch)
+  # - cron: '13 12 * * 1' # toda segunda, ~9h BRT (12h13 UTC; minuto não-redondo reduz atraso de fila do GitHub)
   workflow_dispatch: # permite rodar manualmente
 
 jobs:
